@@ -5,10 +5,10 @@
 Refactored to provide small, testable helpers for EDL -> keep-segments -> filter_complex.
 Provides argument validation and clear exit codes so shell scripts can react.
 """
-import sys
 import os
 import subprocess
-from typing import List, Tuple, Optional
+import sys
+from typing import List, Optional, Tuple
 
 
 def parse_edl_lines(lines: List[str]) -> List[Tuple[float, float, str]]:
