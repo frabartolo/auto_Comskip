@@ -2,14 +2,14 @@ import os
 import sys
 import unittest
 
-import cut_with_edl
-
 # Ensure the `src` directory is importable when tests are executed from the repo root
 TESTS_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(TESTS_DIR, '..'))
 SRC_DIR = os.path.join(PROJECT_ROOT, 'src')
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
+
+import cut_with_edl
 
 
 class TestEDLParsing(unittest.TestCase):

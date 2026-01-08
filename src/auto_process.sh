@@ -50,22 +50,21 @@ find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -
     REL_DIR=$(dirname "${FILE#$MOUNT_DIR/}")
     TARGET_DIR="$TARGET_BASE/$REL_DIR"
     TARGET_FILE="$TARGET_DIR/$FILENAME.mkv"
-    VIDEO_LOG="$TARGET_DIR/$FILENAME.log"
 
     if [ -f "$TARGET_FILE" ]; then continue; fi
 
     echo "Verarbeite: $FILENAME"
     mkdir -p "$TARGET_DIR"
-    echo "Start: $(date)" > "$VIDEO_LOG"
+    echo "[START] $FILENAME - $(date)" >> "$MAIN_LOG"
 
     SRT_FILE="${FILE_BASE}.srt"; [ ! -f "$SRT_FILE" ] && SRT_FILE="none"
     TXT_FILE="${FILE_BASE}.txt"; [ ! -f "$TXT_FILE" ] && TXT_FILE="none"
 
-    comskip --ini=comskip.ini --output="$TEMP_DIR" --quiet -- "$FILE" < /dev/null >> "$VIDEO_LOG" 2>&1
+    comskip --ini=comskip.ini --output="$TEMP_DIR" --quiet -- "$FILE" < /dev/null >> "$MAIN_LOG" 2>&1
     EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" | head -n 1)
 
     if [ -n "$EDL_FILE" ] && [ -f "$EDL_FILE" ]; then
-        python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_FILE" "$TARGET_FILE" "$SRT_FILE" "$TXT_FILE" "$VIDEO_LOG"
+        python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_FILE" "$TARGET_FILE" "$SRT_FILE" "$TXT_FILE" "$MAIN_LOG"
         if [ -f "$TARGET_FILE" ]; then echo "[OK] $FILENAME" >> "$MAIN_LOG"; else echo "[FEHLER] $FILENAME (Schnitt)" >> "$>
     else
         echo "[FEHLER] $FILENAME (Keine EDL)" >> "$MAIN_LOG"

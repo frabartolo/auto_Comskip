@@ -132,8 +132,12 @@ def cut_video(input_file: str,
     try:
         if log_file:
             with open(log_file, "a", encoding='utf-8', errors='ignore') as f_log:
-                f_log.write(f"\n--- FFmpeg Start für {input_file} ---\n")
+                f_log.write(f"\n=== FFmpeg Processing: {os.path.basename(input_file)} ===\n")
+                f_log.write(f"Time: {subprocess.run(['date'], capture_output=True, text=True, shell=True).stdout.strip()}\n")
+                f_log.write(f"Input: {input_file}\nOutput: {output_file}\n")
+                f_log.write(f"Keep segments: {len(keep_segments)}\n\n")
                 rc = subprocess.run(cmd, stdout=f_log, stderr=f_log).returncode
+                f_log.write(f"\n=== FFmpeg Exit Code: {rc} ===\n\n")
         else:
             rc = subprocess.run(cmd).returncode
         if rc != 0:
