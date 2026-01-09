@@ -8,7 +8,12 @@ MAIN_LOG="$TARGET_BASE/process_summary.log"
 mkdir -p "$TEMP_DIR"
 echo "--- Start Durchlauf: $(date) ---" >> "$MAIN_LOG"
 
-find "$SOURCE_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" \) | while read -r FILE;>
+find "$SOURCE_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" -o -iname "*.xml" \) | while read -r FILE; do
+    # Process XML files if they exist
+    if [[ "${FILE,,}" == *.xml ]]; then
+        # Handle XML file processing here
+        echo "Processing XML file: $FILE"
+    fi
 
     FILE_BASE="${FILE%.*}"
     FILENAME_NO_EXT=$(basename "$FILE_BASE")

@@ -43,8 +43,7 @@ fi
 mkdir -p "$TEMP_DIR"
 echo "--- Start Durchlauf: $(date) ---" >> "$MAIN_LOG"
 
-find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" \) | while read -r FILE; >
-    # ... (Rest des Skripts wie zuvor)
+find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" \) | while read -r FILE; do
     FILE_BASE="${FILE%.*}"
     FILENAME=$(basename "$FILE_BASE")
     REL_DIR=$(dirname "${FILE#$MOUNT_DIR/}")
@@ -64,11 +63,26 @@ find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -
     EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" | head -n 1)
 
     if [ -n "$EDL_FILE" ] && [ -f "$EDL_FILE" ]; then
-        python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_FILE" "$TARGET_FILE" "$SRT_FILE" "$TXT_FILE" "$MAIN_LOG"
-        if [ -f "$TARGET_FILE" ]; then echo "[OK] $FILENAME" >> "$MAIN_LOG"; else echo "[FEHLER] $FILENAME (Schnitt)" >> "$>
-    else
-        echo "[FEHLER] $FILENAME (Keine EDL)" >> "$MAIN_LOG"
-    fi
-    rm -rf "$TEMP_DIR"/*
+        echo "Schritt 2: Schneiden und Metadaten einbetten..."
+        # Hier wichtig: < /dev/null am Ende des Python-Aufrufs!
+        python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_FILE" "$TARGET_FILE" "$SRT_FILE" "$TXT_FILE" "$VIDEO_LOG" < /dev/null
+        
+        if [ -f "$TARGET_FILE" ]; then
+            echo "[OK] $FILENAME" >> "$MAIN_LOG"
+        else
+            echo "[FEHLER] $FILENAME (Schnitt fehlgeschlagen)" >> "$MAIN_LOG"
+        fi
+    fi    rm -rf "$TEMP_DIR"/*
 done
 echo "--- Ende Durchlauf: $(date) ---" >> "$MAIN_LOG"
+
+# Function to rename files to their base name
+rename_files() {
+    for FILE in "$SOURCE_DIR"/*; do
+        BASENAME=$(basename "$FILE" | sed 's/__.*//')
+        mv "$FILE" "$SOURCE_DIR/$BASENAME"
+    done
+}
+
+# Call the rename function
+rename_files
