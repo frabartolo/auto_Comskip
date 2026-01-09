@@ -72,7 +72,8 @@ find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -
         else
             echo "[FEHLER] $FILENAME (Schnitt fehlgeschlagen)" >> "$MAIN_LOG"
         fi
-    fi    rm -rf "$TEMP_DIR"/*
+    fi
+    rm -rf "$TEMP_DIR"/*
 done
 echo "--- Ende Durchlauf: $(date) ---" >> "$MAIN_LOG"
 

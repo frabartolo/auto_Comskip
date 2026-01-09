@@ -155,13 +155,20 @@ def convert_without_cuts(
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
                 f_log.write(
-                    f"\n=== FFmpeg Conversion (No Commercials Detected): {os.path.basename(input_file)} ===\n"
+                    f"\n=== FFmpeg Conversion (No Commercials Detected): "
+                    f"{os.path.basename(input_file)} ===\n"
                 )
                 f_log.write(
-                    f"Time: {subprocess.run(['date'], capture_output=True, text=True, shell=True, check=False).stdout.strip()}\n"
+                    f"Time: {subprocess.run(['date'],
+                                            capture_output=True,
+                                            text=True,
+                                            shell=True,
+                                            check=False).stdout.strip()}\n"
                 )
                 f_log.write(f"Input: {input_file}\nOutput: {output_file}\n")
-                f_log.write(f"Note: No commercials detected in EDL. Converting without cuts.\n\n")
+                f_log.write(
+                    "Note: No commercials detected in EDL. Converting without cuts.\n\n"
+                )
                 rc = subprocess.run(
                     cmd, stdout=f_log, stderr=f_log, check=False
                 ).returncode
@@ -386,7 +393,7 @@ def parse_xml_metadata(file_path: str) -> Dict[str, str]:
 
         # Build description from ArvShortInfo and ArvLongInfo
         description_parts: List[str] = []
-        
+
         short_elem = root.find("ArvShortInfo")
         if short_elem is not None and short_elem.text:
             description_parts.append(short_elem.text.strip())
@@ -400,7 +407,7 @@ def parse_xml_metadata(file_path: str) -> Dict[str, str]:
 
     except (ET.ParseError, OSError, IOError):
         return {}
-    
+
     return meta
 
 
@@ -519,8 +526,13 @@ def cut_video(
     if edl_has_no_commercials(edl_file):
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
-                f.write(f"[INFO] No commercials found in EDL for {os.path.basename(input_file)}. Converting without cuts.\n")
-        return convert_without_cuts(input_file, output_file, srt_file, txt_file, log_file)
+                f.write(
+                    f"[INFO] No commercials found in EDL for {os.path.basename(input_file)}."
+                    f" Converting without cuts.\n"
+                )
+        return convert_without_cuts(
+            input_file, output_file, srt_file, txt_file, log_file
+        )
 
     with open(edl_file, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
@@ -581,7 +593,11 @@ def cut_video(
                     f"\n=== FFmpeg Processing: {os.path.basename(input_file)} ===\n"
                 )
                 f_log.write(
-                    f"Time: {subprocess.run(['date'], capture_output=True, text=True, shell=True, check=False).stdout.strip()}\n"
+                    f"Time: {subprocess.run(['date'],
+                                            capture_output=True,
+                                            text=True,
+                                            shell=True,
+                                            check=False).stdout.strip()}\n"
                 )
                 f_log.write(f"Input: {input_file}\nOutput: {output_file}\n")
                 f_log.write(f"Keep segments: {len(keep_segments)}\n\n")
@@ -604,19 +620,20 @@ if __name__ == "__main__":
     # Aufruf: script.py video.edl output [srt] [txt] [log]
     if len(sys.argv) < 4:
         print(
-            "Usage: cut_with_edl.py <input_video> <edl_file> <output_file> [srt_file] [txt_file] [log_file]",
+            "Usage: cut_with_edl.py <input_video> <edl_file> "
+            "<output_file> [srt_file] [txt_file] [log_file]",
             file=sys.stderr,
         )
         sys.exit(2)
 
-    input_file = sys.argv[1]
+    input_video = sys.argv[1]
     edl_file = sys.argv[2]
-    output_file = sys.argv[3]
+    output_video = sys.argv[3]
     srt_file = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "none" else None
     txt_file = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != "none" else None
     log_file = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != "none" else None
 
     EXIT_CODE = cut_video(
-        input_file, edl_file, output_file, srt_file, txt_file, log_file
+        input_video, edl_file, output_video, srt_file, txt_file, log_file
     )
     sys.exit(EXIT_CODE)

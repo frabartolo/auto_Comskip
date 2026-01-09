@@ -13,8 +13,10 @@ Usage:
     python -m unittest tests.test_cut_with_edl -v
 """
 import os
+import shutil
 import sys
 import unittest
+
 import src.cut_with_edl as cut_with_edl
 
 # Ensure the `src` directory is importable when tests are executed from the repo root
@@ -93,42 +95,41 @@ class TestNoCommercialDetection(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary test files."""
-        import shutil
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
 
     def test_edl_empty_file(self):
         """Test detection of empty EDL file."""
         edl_path = os.path.join(self.test_dir, "empty.edl")
-        with open(edl_path, "w") as f:
+        with open(edl_path, "w", encoding="utf-8", errors="ignore") as f:
             f.write("")
         self.assertTrue(cut_with_edl.edl_has_no_commercials(edl_path))
 
     def test_edl_only_comments(self):
         """Test detection of EDL with only comments."""
         edl_path = os.path.join(self.test_dir, "comments.edl")
-        with open(edl_path, "w") as f:
+        with open(edl_path, "w", encoding="utf-8", errors="ignore") as f:
             f.write("# This is a comment\n# Another comment\n")
         self.assertTrue(cut_with_edl.edl_has_no_commercials(edl_path))
 
     def test_edl_with_blank_lines_and_comments(self):
         """Test detection of EDL with blank lines and comments only."""
         edl_path = os.path.join(self.test_dir, "blank_comments.edl")
-        with open(edl_path, "w") as f:
+        with open(edl_path, "w", encoding="utf-8", errors="ignore") as f:
             f.write("\n# Comment\n\n  \n# Another\n")
         self.assertTrue(cut_with_edl.edl_has_no_commercials(edl_path))
 
     def test_edl_with_one_commercial(self):
         """Test detection of EDL with one commercial marker."""
         edl_path = os.path.join(self.test_dir, "one_commercial.edl")
-        with open(edl_path, "w") as f:
+        with open(edl_path, "w", encoding="utf-8", errors="ignore") as f:
             f.write("10.0 20.0 0\n")
         self.assertFalse(cut_with_edl.edl_has_no_commercials(edl_path))
 
     def test_edl_with_multiple_commercials(self):
         """Test detection of EDL with multiple commercial markers."""
         edl_path = os.path.join(self.test_dir, "multi_commercial.edl")
-        with open(edl_path, "w") as f:
+        with open(edl_path, "w", encoding="utf-8", errors="ignore") as f:
             f.write("# Start\n10.0 20.0 0\n# Middle\n40.0 50.0 0\n# End\n")
         self.assertFalse(cut_with_edl.edl_has_no_commercials(edl_path))
 
