@@ -617,23 +617,23 @@ def cut_video(
 
 
 if __name__ == "__main__":
-    # Aufruf: script.py video.edl output [srt] [txt] [log]
+    # Aufruf: script.py input_video edl_file output [srt] [txt] [log]
     if len(sys.argv) < 4:
         print(
-            "Usage: cut_with_edl.py <input_video> <edl_file> "
+            "Usage: cut_with_edl.py <input_video> <edl_file|none> "
             "<output_file> [srt_file] [txt_file] [log_file]",
             file=sys.stderr,
         )
         sys.exit(2)
 
     input_video = sys.argv[1]
-    edl_file = sys.argv[2]
+    edl_video = sys.argv[2]
     output_video = sys.argv[3]
-    srt_file = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "none" else None
-    txt_file = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != "none" else None
-    log_file = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != "none" else None
+    srt_subtitle = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "none" else None
+    txt_metadata = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != "none" else None
+    log_output = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] != "none" else None
 
     EXIT_CODE = cut_video(
-        input_video, edl_file, output_video, srt_file, txt_file, log_file
+        input_video, edl_video, output_video, srt_subtitle, txt_metadata, log_output
     )
     sys.exit(EXIT_CODE)
