@@ -43,7 +43,7 @@ fi
 mkdir -p "$TEMP_DIR"
 echo "--- Start Durchlauf: $(date) ---" >> "$MAIN_LOG"
 
-find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" -o -iname ".m4v"\) | while read -r FILE; do
+find "$MOUNT_DIR" -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.divx" -o -iname ".m4v" -o -iname ".avi" -o -iname ".mov" -o -iname ".wmv" -o -iname ".flv"\) | while read -r FILE; do
     FILE_BASE="${FILE%.*}"
     FILENAME=$(basename "$FILE_BASE")
     REL_DIR=$(dirname "${FILE#$MOUNT_DIR/}")
