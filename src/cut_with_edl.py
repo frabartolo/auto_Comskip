@@ -518,6 +518,16 @@ def cut_video(
     if not os.path.exists(input_file):
         print(f"ERROR: input file not found: {input_file}", file=sys.stderr)
         return 3
+    if not edl_file or edl_file == "none":
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(
+                    f"[INFO] No EDL file provided for {os.path.basename(input_file)}."
+                    " Converting without cuts.\n"
+                )
+        return convert_without_cuts(
+            input_file, output_file, srt_file, txt_file, log_file
+        )
     if not os.path.exists(edl_file):
         print(f"ERROR: EDL file not found: {edl_file}", file=sys.stderr)
         return 4
