@@ -3,6 +3,9 @@
 set -e
 set -u
 
+set -e
+set -u
+
 # --- KONFIGURATION ---
 CRED_FILE="/home/stefan/.smbcredentials"
 SSH_HOST="cold-lairs"
@@ -12,6 +15,21 @@ TARGET_BASE="/srv/data/Videos"
 TEMP_DIR="/tmp/comskip_work"
 MAIN_LOG="/srv/data/Videos/process_summary.log"
 PYTHON_SCRIPT="./cut_with_edl.py"
+COMSKIP_INI="./comskip.ini"
+
+PROCESSED=0
+FAILED=0
+SKIPPED=0
+RENAMED=0
+
+log_message() {
+    local msg="$1"
+    echo "$msg"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$MAIN_LOG"
+}
+
+# --- ZUGANGSDATEN AUSLESEN ---
+if [ ! -f "$CRED_FILE" ]; then
 COMSKIP_INI="./comskip.ini"
 
 PROCESSED=0
@@ -52,6 +70,16 @@ unmount_safely() {
     fi
 }
 
+unmount_safely() {
+    if mountpoint -q "$MOUNT_DIR"; then
+        log_message "Unmounte $MOUNT_DIR..."
+        fusermount -u "$MOUNT_DIR" 2>/dev/null || \
+        sudo umount -l "$MOUNT_DIR" 2>/dev/null || \
+        true
+        sleep 1
+    fi
+}
+
 if mountpoint -q "$MOUNT_DIR"; then
     if ! ls "$MOUNT_DIR" > /dev/null 2>&1; then
         log_message "WARNUNG: Stale mount erkannt"
@@ -74,6 +102,20 @@ if ! mountpoint -q "$MOUNT_DIR"; then
         "$SSH_USER@$SSH_HOST:$REMOTE_PATH" "$MOUNT_DIR" 2>/dev/null; then
         log_message "  -> Mount erfolgreich (ohne allow_other)"
     else
+        echo "FEHLER: SSHFS-Mount fehlgeschlagen!"
+        exit 1
+    fi
+    
+    sleep 2
+    
+    if ! mountpoint -q "$MOUNT_DIR"; then
+        echo "FEHLER: Mount-Punkt ist nicht aktiv!"
+        exit 1
+    fi
+    
+    if ! ls "$MOUNT_DIR" > /dev/null 2>&1; then
+        echo "FEHLER: Mount ist tot!"
+        unmount_safely
         echo "FEHLER: SSHFS-Mount fehlgeschlagen!"
         exit 1
     fi
@@ -111,6 +153,16 @@ fi
 log_message "=========================================="
 log_message "Start Verarbeitung: $(date)"
 log_message "=========================================="
+mkdir -p "$TARGET_BASE"
+
+if [ ! -f "$PYTHON_SCRIPT" ]; then
+    echo "FEHLER: Python-Skript nicht gefunden: $PYTHON_SCRIPT"
+    exit 1
+fi
+
+log_message "=========================================="
+log_message "Start Verarbeitung: $(date)"
+log_message "=========================================="
 
 find "$MOUNT_DIR" -type f \
     \( -iname "*.mp4" -o -iname "*.m4v" -o -iname "*.mkv" -o -iname "*.ts" \
@@ -118,8 +170,14 @@ find "$MOUNT_DIR" -type f \
     -o -iname "*.asf" -o -iname "*.wmv" -o -iname "*.avi" -o -iname "*.divx" \) 2>/dev/null | \
 while IFS= read -r FILE; do
     
+    \( -iname "*.mp4" -o -iname "*.m4v" -o -iname "*.mkv" -o -iname "*.ts" \
+    -o -iname "*.mpeg" -o -iname "*.mpg" -o -iname "*.mov" -o -iname "*.webm" \
+    -o -iname "*.asf" -o -iname "*.wmv" -o -iname "*.avi" -o -iname "*.divx" \) 2>/dev/null | \
+while IFS= read -r FILE; do
+    
     FILE_BASE="${FILE%.*}"
     FILENAME=$(basename "$FILE_BASE")
+    EXTENSION="${FILE##*.}"
     EXTENSION="${FILE##*.}"
     REL_DIR=$(dirname "${FILE#$MOUNT_DIR/}")
     TARGET_DIR="$TARGET_BASE/$REL_DIR"
@@ -235,6 +293,7 @@ while IFS= read -r FILE; do
         fi
         ((FAILED++)) || true
     fi
+    
     
     rm -rf "$TEMP_DIR"/*
     
