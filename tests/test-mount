@@ -1,0 +1,5 @@
+ sshfs -o allow_other,default_permissions,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 "stefan@cold-lairs:/var/opt/shares/Videos" "./mount/cold-lairs-videos"
+
+ screen -dmS comskip bash -c './auto_process.sh  2>&1 | tee debug.log'
+ screen -r comskip
+ Detach mit: Ctrl+A, dann D
