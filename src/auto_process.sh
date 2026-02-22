@@ -14,6 +14,14 @@ MAIN_LOG="/srv/data/Videos/process_summary.log"
 PYTHON_SCRIPT="./cut_with_edl.py"
 COMSKIP_INI="./comskip.ini"
 
+# --- MULTI-MASCHINEN KOORDINATION ---
+# Lock-Verzeichnis auf dem Remote-Share (sichtbar für alle Rechner)
+LOCK_DIR="$MOUNT_DIR/.comskip_locks"
+# Eindeutige Worker-ID: Hostname + PID
+WORKER_ID="$(hostname)-$$"
+# Staler Lock nach X Minuten übernehmen (z. B. bei Absturz)
+LOCK_TIMEOUT_MINUTES=240
+
 PROCESSED=0
 FAILED=0
 SKIPPED=0
@@ -24,6 +32,60 @@ log_message() {
     echo "$msg"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$MAIN_LOG"
 }
+
+# --- MULTI-MASCHINEN LOCK-FUNKTIONEN ---
+# Versucht, eine Datei exklusiv zu beanspruchen.
+# Gibt 0 zurück wenn erfolgreich, 1 wenn bereits von anderem Rechner belegt.
+try_claim_file() {
+    local file_key="$1"
+    local lock_dir="$LOCK_DIR/${file_key}.lck"
+
+    # Lock-Verzeichnis anlegen (Fehler ignorieren, z. B. Read-only FS)
+    mkdir -p "$LOCK_DIR" 2>/dev/null || return 0
+
+    # Atomares Anlegen per mkdir
+    if mkdir "$lock_dir" 2>/dev/null; then
+        printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
+        return 0
+    fi
+
+    # Lock existiert – prüfe ob er abgelaufen ist
+    if [ -f "$lock_dir/info" ]; then
+        local lock_info worker_name lock_time age_minutes
+        lock_info=$(cat "$lock_dir/info" 2>/dev/null || echo "unknown:0")
+        worker_name=$(echo "$lock_info" | cut -d: -f1)
+        lock_time=$(echo "$lock_info" | cut -d: -f2)
+        age_minutes=$(( ( $(date +%s) - lock_time ) / 60 ))
+        if [ "$age_minutes" -ge "$LOCK_TIMEOUT_MINUTES" ]; then
+            log_message "  -> Staler Lock von $worker_name (${age_minutes}min), übernehme..."
+            rm -rf "$lock_dir"
+            if mkdir "$lock_dir" 2>/dev/null; then
+                printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
+                return 0
+            fi
+        fi
+        log_message "  -> Bereits in Bearbeitung von: $worker_name (${age_minutes}min)"
+    fi
+
+    return 1
+}
+
+# Gibt den Lock für eine Datei frei.
+release_file() {
+    local file_key="$1"
+    rm -rf "$LOCK_DIR/${file_key}.lck" 2>/dev/null || true
+}
+
+# Räumt beim Beenden alle Locks auf, die von diesem Prozess angelegt wurden.
+cleanup_locks() {
+    [ -d "$LOCK_DIR" ] || return 0
+    while IFS= read -r lock; do
+        if [ -f "$lock/info" ] && grep -q "^${WORKER_ID}:" "$lock/info" 2>/dev/null; then
+            rm -rf "$lock"
+        fi
+    done < <(find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null)
+}
+trap cleanup_locks EXIT
 
 # --- ZUGANGSDATEN AUSLESEN ---
 if [ ! -f "$CRED_FILE" ]; then
@@ -146,7 +208,15 @@ while IFS= read -r FILE; do
     
     # Verwende den Original-Namen für die Ausgabe
     TARGET_FILE="$TARGET_FILE_ORIGINAL"
-    
+
+    # Multi-Maschinen Lock: Datei exklusiv für diesen Rechner beanspruchen
+    LOCK_KEY=$(echo "${FILE#$MOUNT_DIR/}" | md5sum | cut -d' ' -f1)
+    if ! try_claim_file "$LOCK_KEY"; then
+        echo "Überspringe (in Bearbeitung auf anderem Rechner): $FILENAME.$EXTENSION"
+        ((SKIPPED++)) || true
+        continue
+    fi
+
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME.$EXTENSION"
     
@@ -159,6 +229,7 @@ while IFS= read -r FILE; do
         log_message "    Datei: ${FILE_SIZE_MB}MB, Verfügbar: ${AVAILABLE_RAM_MB}MB"
         log_message "    Tipp: Füge mehr RAM oder Swap hinzu"
         log_message "  ✗ Überspringe"
+        release_file "$LOCK_KEY"
         ((FAILED++)) || true
         continue
     fi
@@ -236,6 +307,8 @@ while IFS= read -r FILE; do
         ((FAILED++)) || true
     fi
     
+    release_file "$LOCK_KEY"
+
     rm -rf "$TEMP_DIR"/*
     
 done
