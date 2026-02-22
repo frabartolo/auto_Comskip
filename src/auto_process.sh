@@ -20,7 +20,9 @@ LOCK_DIR="$MOUNT_DIR/.comskip_locks"
 # Eindeutige Worker-ID: Hostname + PID
 WORKER_ID="$(hostname)-$$"
 # Staler Lock nach X Minuten übernehmen (z. B. bei Absturz)
-LOCK_TIMEOUT_MINUTES=240
+LOCK_TIMEOUT_MINUTES=60
+# Heartbeat-Intervall in Sekunden (muss deutlich kürzer als LOCK_TIMEOUT_MINUTES*60 sein)
+HEARTBEAT_INTERVAL_SECONDS=60
 
 PROCESSED=0
 FAILED=0
@@ -34,6 +36,20 @@ log_message() {
 }
 
 # --- MULTI-MASCHINEN LOCK-FUNKTIONEN ---
+
+# Erzeugt einen kollisionssicheren Schlüssel aus dem Dateipfad.
+# Versucht sha256sum → md5sum → cksum als Fallback.
+make_lock_key() {
+    local path="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$path" | sha256sum | cut -d' ' -f1
+    elif command -v md5sum >/dev/null 2>&1; then
+        printf '%s' "$path" | md5sum | cut -d' ' -f1
+    else
+        printf '%s' "$path" | cksum | awk '{print $1 "_" $2}'
+    fi
+}
+
 # Versucht, eine Datei exklusiv zu beanspruchen.
 # Gibt 0 zurück wenn erfolgreich, 1 wenn bereits von anderem Rechner belegt.
 try_claim_file() {
@@ -61,7 +77,11 @@ try_claim_file() {
             rm -rf "$lock_dir"
             if mkdir "$lock_dir" 2>/dev/null; then
                 printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
-                return 0
+                # Race-Condition-Schutz: kurz warten, dann Eigentümerschaft bestätigen
+                sleep 1
+                if grep -q "^${WORKER_ID}:" "$lock_dir/info" 2>/dev/null; then
+                    return 0
+                fi
             fi
         fi
         log_message "  -> Bereits in Bearbeitung von: $worker_name (${age_minutes}min)"
@@ -76,14 +96,38 @@ release_file() {
     rm -rf "$LOCK_DIR/${file_key}.lck" 2>/dev/null || true
 }
 
+# Startet einen Hintergrundprozess, der den Lock-Zeitstempel regelmäßig erneuert,
+# damit lange Jobs (>LOCK_TIMEOUT_MINUTES) nicht fälschlich als abgelaufen gelten.
+start_heartbeat() {
+    local file_key="$1"
+    local lock_dir="$LOCK_DIR/${file_key}.lck"
+    (
+        while true; do
+            sleep "$HEARTBEAT_INTERVAL_SECONDS"
+            if grep -q "^${WORKER_ID}:" "$lock_dir/info" 2>/dev/null; then
+                printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
+            else
+                break
+            fi
+        done
+    ) &
+    echo $!
+}
+
+# Stoppt den Heartbeat-Prozess.
+stop_heartbeat() {
+    local pid="$1"
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+}
+
 # Räumt beim Beenden alle Locks auf, die von diesem Prozess angelegt wurden.
 cleanup_locks() {
     [ -d "$LOCK_DIR" ] || return 0
-    while IFS= read -r lock; do
+    find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | while IFS= read -r lock; do
         if [ -f "$lock/info" ] && grep -q "^${WORKER_ID}:" "$lock/info" 2>/dev/null; then
             rm -rf "$lock"
         fi
-    done < <(find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null)
+    done
 }
 trap cleanup_locks EXIT
 
@@ -210,12 +254,13 @@ while IFS= read -r FILE; do
     TARGET_FILE="$TARGET_FILE_ORIGINAL"
 
     # Multi-Maschinen Lock: Datei exklusiv für diesen Rechner beanspruchen
-    LOCK_KEY=$(echo "${FILE#$MOUNT_DIR/}" | md5sum | cut -d' ' -f1)
+    LOCK_KEY=$(make_lock_key "${FILE#$MOUNT_DIR/}")
     if ! try_claim_file "$LOCK_KEY"; then
         echo "Überspringe (in Bearbeitung auf anderem Rechner): $FILENAME.$EXTENSION"
         ((SKIPPED++)) || true
         continue
     fi
+    HEARTBEAT_PID=$(start_heartbeat "$LOCK_KEY")
 
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME.$EXTENSION"
@@ -229,6 +274,7 @@ while IFS= read -r FILE; do
         log_message "    Datei: ${FILE_SIZE_MB}MB, Verfügbar: ${AVAILABLE_RAM_MB}MB"
         log_message "    Tipp: Füge mehr RAM oder Swap hinzu"
         log_message "  ✗ Überspringe"
+        stop_heartbeat "$HEARTBEAT_PID"
         release_file "$LOCK_KEY"
         ((FAILED++)) || true
         continue
@@ -307,6 +353,7 @@ while IFS= read -r FILE; do
         ((FAILED++)) || true
     fi
     
+    stop_heartbeat "$HEARTBEAT_PID"
     release_file "$LOCK_KEY"
 
     rm -rf "$TEMP_DIR"/*
