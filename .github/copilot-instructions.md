@@ -4,6 +4,7 @@ This repository automates commercial detection (Comskip) and performs lossless-i
 
 Key flow (files to read):
 - Discovery & orchestration: `src/auto_process.sh` and `src/auto_cut.sh`
+- Retry failed: `src/retry_failed.sh` (parses process_summary.log for errors, re-runs Comskip/FFmpeg for those files)
 - Detection config: `src/comskip.ini` (Comskip options)
 - Cutting + metadata: `src/cut_with_edl.py` (ffmpeg filter_complex construction)
 
@@ -56,6 +57,7 @@ To run the full automated process, `auto_process.sh` expects a credentials file 
 ## Files to reference for examples
 - `src/auto_process.sh` — remote mount, discovery, comskip invocation, logging
 - `src/auto_cut.sh` — simple local discovery variant
+- `src/retry_failed.sh` — parse MAIN_LOG for failed files (Speicherzugriffsfehler, ✗ Keine Ausgabe, ✗ Python Exit), re-run comskip + cut_with_edl.py; use `--dry-run` to list only
 - `src/cut_with_edl.py` — EDL parsing and ffmpeg invocation (primary transformation logic)
 - `src/comskip.ini` — detection flags (e.g., `output_edl=1`)
 
