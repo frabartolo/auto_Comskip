@@ -34,6 +34,12 @@ Run a single-file debug pipeline (dry run) to inspect a single file end-to-end:
    - Global run summary: `/srv/data/Videos/process_summary.log` (used by `auto_process.sh`)
    - Per-video logs are created next to `TARGET_DIR` (see `auto_process.sh` variable `VIDEO_LOG`).
 
+**Corrupted file handling:**
+- `cut_with_edl.py` automatically attempts repair with `ffmpeg -err_detect ignore_err` if a file fails to process.
+- If repair fails, the file is added to `/srv/data/Videos/corrupted_files.blacklist`.
+- `retry_failed.sh` skips blacklisted files to avoid repeated processing attempts.
+- Exit code 9 indicates a blacklisted file was encountered.
+
 To run the full automated process, `auto_process.sh` expects a credentials file (see variables at top of the script):
 - `CRED_FILE` contains `username=<user>` and `password=<pass>` lines. The script uses `sshpass` + `sshfs` to mount `REMOTE_PATH`.
 

@@ -12,6 +12,9 @@ import shutil
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 
+# Blacklist path for permanently corrupted files
+BLACKLIST_FILE = "/srv/data/Videos/corrupted_files.blacklist"
+
 
 def edl_has_no_commercials(edl_file: str) -> bool:
     """Check if an EDL file contains no commercial segments."""
@@ -32,6 +35,95 @@ def edl_has_no_commercials(edl_file: str) -> bool:
         return True
     except (OSError, IOError):
         return True
+
+
+def is_blacklisted(input_file: str) -> bool:
+    """Check if file is in the corruption blacklist."""
+    if not os.path.exists(BLACKLIST_FILE):
+        return False
+    basename = os.path.basename(input_file)
+    try:
+        with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip() == basename:
+                    return True
+    except (OSError, IOError):
+        pass
+    return False
+
+
+def add_to_blacklist(input_file: str, log_file: Optional[str] = None) -> None:
+    """Add a corrupted file to the blacklist."""
+    basename = os.path.basename(input_file)
+    try:
+        os.makedirs(os.path.dirname(BLACKLIST_FILE), exist_ok=True)
+        with open(BLACKLIST_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{basename}\n")
+        msg = f"Added to corruption blacklist: {basename}"
+        print(msg, file=sys.stderr)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
+                f_log.write(f"[BLACKLIST] {msg}\n")
+    except (OSError, IOError) as e:
+        print(f"Warning: Could not write blacklist: {e}", file=sys.stderr)
+
+
+def repair_corrupted_file(input_file: str, log_file: Optional[str] = None) -> Optional[str]:
+    """Attempt to repair a corrupted video file.
+    
+    Returns path to repaired file if successful, None otherwise.
+    """
+    temp_repaired = tempfile.mktemp(suffix=".ts", prefix="repaired_")
+    
+    if log_file:
+        with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+            f.write(f"\n[REPAIR] Attempting to repair corrupted file: {os.path.basename(input_file)}\n")
+    
+    # Try repair with error tolerance
+    cmd = [
+        "ffmpeg", "-nostdin", "-hide_banner",
+        "-err_detect", "ignore_err",
+        "-i", input_file,
+        "-c", "copy",
+        "-y", temp_repaired
+    ]
+    
+    try:
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write("[REPAIR] Running: ffmpeg -err_detect ignore_err -i <file> -c copy\n")
+                rc = subprocess.run(cmd, stdout=f, stderr=f, check=False).returncode
+        else:
+            rc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode
+        
+        if rc == 0 and os.path.exists(temp_repaired) and os.path.getsize(temp_repaired) > 1024:
+            # Verify repaired file works
+            verify_cmd = ["ffprobe", "-v", "error", temp_repaired]
+            verify_rc = subprocess.run(verify_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode
+            
+            if verify_rc == 0:
+                if log_file:
+                    with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                        f.write("[REPAIR] ✓ Repair successful, using repaired file\n")
+                return temp_repaired
+        
+        # Cleanup failed repair
+        if os.path.exists(temp_repaired):
+            os.remove(temp_repaired)
+        
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(f"[REPAIR] ✗ Repair failed (rc={rc}), file is permanently corrupted\n")
+        
+        return None
+        
+    except Exception as e:
+        if os.path.exists(temp_repaired):
+            os.remove(temp_repaired)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(f"[REPAIR] ✗ Exception during repair: {e}\n")
+        return None
 
 
 def parse_edl_lines(lines: List[str]) -> List[Tuple[float, float, str]]:
@@ -196,12 +288,30 @@ def convert_without_cuts(
     txt_file: Optional[str] = None,
     log_file: Optional[str] = None,
 ) -> int:
-    """Convert video to MKV format without cutting commercials."""
+    """Convert video to MKV format without cutting commercials.
+    
+    Includes automatic repair attempt for corrupted files.
+    """
     if not os.path.exists(input_file):
         print(f"ERROR: input file not found: {input_file}", file=sys.stderr)
         return 3
-
-    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", input_file]
+    
+    # Check blacklist first
+    if is_blacklisted(input_file):
+        msg = f"File is blacklisted (permanently corrupted): {os.path.basename(input_file)}"
+        print(msg, file=sys.stderr)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(f"[BLACKLIST] {msg}\n")
+        return 9  # New exit code for blacklisted files
+    
+    # First attempt with error tolerance
+    working_file = input_file
+    repaired_temp_file = None
+    
+    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
+    cmd.extend(["-err_detect", "ignore_err"])  # Try to ignore errors first
+    cmd.extend(["-i", working_file])
 
     has_srt = False
     if srt_file and os.path.exists(srt_file):
@@ -244,17 +354,51 @@ def convert_without_cuts(
                 rc = subprocess.run(
                     cmd, stdout=f_log, stderr=f_log, check=False
                 ).returncode
-                f_log.write(f"\n=== FFmpeg Exit Code: {rc} ===\n\n")
+                f_log.write(f"\n=== FFmpeg Exit Code: {rc} ===\n")
         else:
             rc = subprocess.run(cmd, check=False).returncode
 
+        # If failed, attempt repair
         if rc != 0:
-            print(f"FFmpeg failed with exit code {rc}", file=sys.stderr)
-            return 6
+            if log_file:
+                with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
+                    f_log.write(f"[INFO] First attempt failed (rc={rc}), attempting repair...\n")
+            
+            repaired_temp_file = repair_corrupted_file(input_file, log_file)
+            
+            if repaired_temp_file:
+                # Retry with repaired file
+                working_file = repaired_temp_file
+                cmd[cmd.index(input_file)] = repaired_temp_file
+                
+                if log_file:
+                    with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
+                        f_log.write("\n=== Retry with Repaired File ===\n")
+                        rc = subprocess.run(
+                            cmd, stdout=f_log, stderr=f_log, check=False
+                        ).returncode
+                        f_log.write(f"\n=== FFmpeg Exit Code (after repair): {rc} ===\n\n")
+                else:
+                    rc = subprocess.run(cmd, check=False).returncode
+            
+            # If still failed, add to blacklist
+            if rc != 0:
+                add_to_blacklist(input_file, log_file)
+                print(f"FFmpeg failed with exit code {rc} (file added to blacklist)", file=sys.stderr)
+                return 6
+
         return 0
+        
     except FileNotFoundError:
         print("ERROR: ffmpeg not found on PATH", file=sys.stderr)
         return 7
+    finally:
+        # Cleanup repaired temp file
+        if repaired_temp_file and os.path.exists(repaired_temp_file):
+            try:
+                os.remove(repaired_temp_file)
+            except OSError:
+                pass
 
 
 def cut_video_with_concat_demuxer(

@@ -21,6 +21,7 @@ TEMP_DIR="${TEMP_DIR:-/tmp/comskip_work}"
 MAIN_LOG="${MAIN_LOG:-/srv/data/Videos/process_summary.log}"
 PYTHON_SCRIPT="${SCRIPT_DIR}/cut_with_edl.py"
 COMSKIP_INI="${SCRIPT_DIR}/comskip.ini"
+BLACKLIST_FILE="/srv/data/Videos/corrupted_files.blacklist"
 
 DRY_RUN=0
 if [ "${1:-}" = "--dry-run" ]; then
@@ -114,6 +115,13 @@ PROCESSED=0
 FAILED=0
 
 for BASENAME in "${FAILED_FILES[@]}"; do
+    # Prüfe ob in Blacklist
+    if [ -f "$BLACKLIST_FILE" ] && grep -qxF "$BASENAME" "$BLACKLIST_FILE"; then
+        log_message "Retry: Überspringe (Blacklist): $BASENAME"
+        ((FAILED++)) || true
+        continue
+    fi
+    
     # Vollständigen Pfad der Quelldatei suchen (unter MOUNT_DIR)
     FILE=$(find "$MOUNT_DIR" -type f -name "$BASENAME" 2>/dev/null | head -n 1)
     if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
