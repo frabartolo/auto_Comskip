@@ -4,11 +4,14 @@ automated removal of commercials from videos
 ## Features
 
 - **Automatic commercial detection** using Comskip
+- **Robust error handling** for Comskip crashes (Segmentation Faults)
+- **Automatic file repair** before Comskip processing for problematic files
 - **Lossless-ish cutting** with FFmpeg (re-encode with high quality settings)
 - **Subtitle and metadata** preservation (.srt, .txt, .xml)
-- **Automatic repair** of corrupted video files
+- **Automatic repair** of corrupted video files during FFmpeg processing
 - **Blacklist management** for permanently broken files
 - **Retry mechanism** for failed processing attempts
+- **Multi-machine coordination** with distributed lock system
 
 ## Usage
 
@@ -34,10 +37,12 @@ Parses the log file for failures and re-runs the pipeline on those files.
 ### Corrupted File Handling
 
 When a file fails to process:
-1. **First attempt**: FFmpeg tries with `-err_detect ignore_err` flag
-2. **Repair attempt**: If failed, runs `ffmpeg -err_detect ignore_err -i <file> -c copy` to repair
-3. **Blacklist**: If repair fails, adds file to `/srv/data/Videos/corrupted_files.blacklist`
-4. **Skip on retry**: Blacklisted files are automatically skipped in future retries
+1. **Pre-check**: FFprobe validates file before Comskip runs
+2. **Optional repair**: If ffprobe fails, file is repaired with `ffmpeg -err_detect ignore_err -c copy` before Comskip
+3. **Comskip crash detection**: Exit codes 139/134 (Segmentation Fault) are logged, processing continues without EDL
+4. **FFmpeg attempt**: If FFmpeg fails, automatic repair is attempted
+5. **Blacklist**: If all attempts fail, file is added to `corrupted_files.blacklist`
+6. **Skip on retry**: Blacklisted files are automatically skipped in future runs
 
 To manually manage the blacklist:
 ```bash

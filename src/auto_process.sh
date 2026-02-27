@@ -332,14 +332,56 @@ while IFS= read -r FILE; do
     rm -rf "$TEMP_DIR"/*
     refresh_lock "$LOCK_KEY"
 
-    if [ -f "$COMSKIP_INI" ]; then
-        comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || true
-    else
-        comskip --output="$TEMP_DIR" --quiet -- "$FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || true
+    # Pre-Check: Prüfe ob Datei von ffprobe lesbar ist
+    WORKING_FILE="$FILE"
+    TEMP_REPAIRED=""
+    
+    if ! ffprobe -v error "$FILE" >/dev/null 2>&1; then
+        log_message "  ⚠ Datei hat Fehler, versuche Reparatur vor Comskip..."
+        TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
+        if ffmpeg -nostdin -v error -err_detect ignore_err -i "$FILE" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1; then
+            if [ -f "$TEMP_REPAIRED" ] && [ -s "$TEMP_REPAIRED" ]; then
+                log_message "  ✓ Datei repariert, nutze reparierte Version für Comskip"
+                WORKING_FILE="$TEMP_REPAIRED"
+            else
+                log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
+                rm -f "$TEMP_REPAIRED" 2>/dev/null
+                EDL_ARG="none"
+                WORKING_FILE="$FILE"
+            fi
+        else
+            log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
+            EDL_ARG="none"
+        fi
     fi
 
-    EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
-    EDL_ARG="${EDL_FILE:-none}"
+    if [ "$EDL_ARG" != "none" ]; then
+        if [ -f "$COMSKIP_INI" ]; then
+            comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || {
+                COMSKIP_EXIT=$?
+                if [ $COMSKIP_EXIT -eq 139 ] || [ $COMSKIP_EXIT -eq 134 ]; then
+                    log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
+                else
+                    log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
+                fi
+            }
+        else
+            comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || {
+                COMSKIP_EXIT=$?
+                if [ $COMSKIP_EXIT -eq 139 ] || [ $COMSKIP_EXIT -eq 134 ]; then
+                    log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
+                else
+                    log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
+                fi
+            }
+        fi
+
+        EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
+        EDL_ARG="${EDL_FILE:-none}"
+    fi
+    
+    # Cleanup temp repaired file
+    [ -n "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED" 2>/dev/null
 
     # FFmpeg mit Lock-Refresh
     log_message "Schritt 2: FFmpeg..."

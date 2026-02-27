@@ -35,8 +35,11 @@ Run a single-file debug pipeline (dry run) to inspect a single file end-to-end:
    - Per-video logs are created next to `TARGET_DIR` (see `auto_process.sh` variable `VIDEO_LOG`).
 
 **Corrupted file handling:**
+- `auto_process.sh` validates files with `ffprobe` before Comskip processing.
+- If validation fails, attempts automatic repair with `ffmpeg -err_detect ignore_err -c copy`.
+- Comskip segfaults (exit codes 139/134) are caught and logged; processing continues without EDL.
 - `cut_with_edl.py` automatically attempts repair with `ffmpeg -err_detect ignore_err` if a file fails to process.
-- If repair fails, the file is added to `/srv/data/Videos/corrupted_files.blacklist`.
+- If repair fails, the file is added to `corrupted_files.blacklist` (located in TARGET_MOUNT_DIR).
 - `retry_failed.sh` skips blacklisted files to avoid repeated processing attempts.
 - Exit code 9 indicates a blacklisted file was encountered.
 
