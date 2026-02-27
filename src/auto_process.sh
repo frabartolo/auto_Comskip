@@ -335,6 +335,7 @@ while IFS= read -r FILE; do
     # Pre-Check: Prüfe ob Datei von ffprobe lesbar ist
     WORKING_FILE="$FILE"
     TEMP_REPAIRED=""
+    EDL_ARG=""
     
     if ! ffprobe -v error "$FILE" >/dev/null 2>&1; then
         log_message "  ⚠ Datei hat Fehler, versuche Reparatur vor Comskip..."
@@ -355,7 +356,7 @@ while IFS= read -r FILE; do
         fi
     fi
 
-    if [ "$EDL_ARG" != "none" ]; then
+    if [ -z "$EDL_ARG" ]; then
         if [ -f "$COMSKIP_INI" ]; then
             comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || {
                 COMSKIP_EXIT=$?
