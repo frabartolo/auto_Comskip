@@ -15,13 +15,14 @@ set -u
 
 # --- KONFIGURATION (muss zu auto_process.sh passen) ---
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
-MOUNT_DIR="${MOUNT_DIR:-$HOME/mount/cold-lairs-videos}"
-TARGET_BASE="${TARGET_BASE:-/srv/data/Videos}"
+SOURCE_MOUNT_DIR="${SOURCE_MOUNT_DIR:-$HOME/mount/cold-lairs-videos}"
+TARGET_MOUNT_DIR="${TARGET_MOUNT_DIR:-$HOME/mount/khanhiwara-videos}"
+TARGET_BASE="$TARGET_MOUNT_DIR"
 TEMP_DIR="${TEMP_DIR:-/tmp/comskip_work}"
-MAIN_LOG="${MAIN_LOG:-/srv/data/Videos/process_summary.log}"
+MAIN_LOG="$TARGET_MOUNT_DIR/process_summary.log"
 PYTHON_SCRIPT="${SCRIPT_DIR}/cut_with_edl.py"
 COMSKIP_INI="${SCRIPT_DIR}/comskip.ini"
-BLACKLIST_FILE="/srv/data/Videos/corrupted_files.blacklist"
+BLACKLIST_FILE="$TARGET_MOUNT_DIR/corrupted_files.blacklist"
 
 DRY_RUN=0
 if [ "${1:-}" = "--dry-run" ]; then
@@ -101,8 +102,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --- Mount prüfen ---
-if ! mountpoint -q "$MOUNT_DIR" 2>/dev/null; then
-    echo "WARNUNG: $MOUNT_DIR ist nicht gemountet. Bitte zuerst auto_process.sh ausführen oder Mount manuell setzen."
+if ! mountpoint -q "$SOURCE_MOUNT_DIR" 2>/dev/null; then
+    echo "WARNUNG: $SOURCE_MOUNT_DIR ist nicht gemountet. Bitte zuerst auto_process.sh ausführen oder Mount manuell setzen."
     read -p "Trotzdem fortfahren? (j/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[jJ]$ ]]; then
@@ -122,8 +123,8 @@ for BASENAME in "${FAILED_FILES[@]}"; do
         continue
     fi
     
-    # Vollständigen Pfad der Quelldatei suchen (unter MOUNT_DIR)
-    FILE=$(find "$MOUNT_DIR" -type f -name "$BASENAME" 2>/dev/null | head -n 1)
+    # Vollständigen Pfad der Quelldatei suchen (unter SOURCE_MOUNT_DIR)
+    FILE=$(find "$SOURCE_MOUNT_DIR" -type f -name "$BASENAME" 2>/dev/null | head -n 1)
     if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
         log_message "Retry: Quelle nicht gefunden, überspringe: $BASENAME"
         ((FAILED++)) || true
@@ -133,7 +134,7 @@ for BASENAME in "${FAILED_FILES[@]}"; do
     FILE_BASE="${FILE%.*}"
     FILENAME=$(basename "$FILE_BASE")
     EXTENSION="${FILE##*.}"
-    REL_DIR=$(dirname "${FILE#$MOUNT_DIR/}")
+    REL_DIR=$(dirname "${FILE#$SOURCE_MOUNT_DIR/}")
     REL_DIR="${REL_DIR#/}"
     TARGET_DIR="$TARGET_BASE/$REL_DIR"
     TARGET_FILE="$TARGET_DIR/$FILENAME.mkv"

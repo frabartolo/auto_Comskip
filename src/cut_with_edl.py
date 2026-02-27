@@ -13,7 +13,15 @@ import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 
 # Blacklist path for permanently corrupted files
-BLACKLIST_FILE = "/srv/data/Videos/corrupted_files.blacklist"
+# This will be set dynamically based on the log file location if provided
+BLACKLIST_FILE = None
+
+def get_blacklist_path(log_file: Optional[str] = None) -> str:
+    """Determine blacklist file path from log file location or use default."""
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        return os.path.join(log_dir, "corrupted_files.blacklist")
+    return "/tmp/corrupted_files.blacklist"
 
 
 def edl_has_no_commercials(edl_file: str) -> bool:
@@ -37,13 +45,14 @@ def edl_has_no_commercials(edl_file: str) -> bool:
         return True
 
 
-def is_blacklisted(input_file: str) -> bool:
+def is_blacklisted(input_file: str, log_file: Optional[str] = None) -> bool:
     """Check if file is in the corruption blacklist."""
-    if not os.path.exists(BLACKLIST_FILE):
+    blacklist_file = get_blacklist_path(log_file)
+    if not os.path.exists(blacklist_file):
         return False
     basename = os.path.basename(input_file)
     try:
-        with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
+        with open(blacklist_file, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip() == basename:
                     return True
@@ -54,10 +63,11 @@ def is_blacklisted(input_file: str) -> bool:
 
 def add_to_blacklist(input_file: str, log_file: Optional[str] = None) -> None:
     """Add a corrupted file to the blacklist."""
+    blacklist_file = get_blacklist_path(log_file)
     basename = os.path.basename(input_file)
     try:
-        os.makedirs(os.path.dirname(BLACKLIST_FILE), exist_ok=True)
-        with open(BLACKLIST_FILE, "a", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(blacklist_file), exist_ok=True)
+        with open(blacklist_file, "a", encoding="utf-8") as f:
             f.write(f"{basename}\n")
         msg = f"Added to corruption blacklist: {basename}"
         print(msg, file=sys.stderr)
@@ -297,7 +307,7 @@ def convert_without_cuts(
         return 3
     
     # Check blacklist first
-    if is_blacklisted(input_file):
+    if is_blacklisted(input_file, log_file):
         msg = f"File is blacklisted (permanently corrupted): {os.path.basename(input_file)}"
         print(msg, file=sys.stderr)
         if log_file:
