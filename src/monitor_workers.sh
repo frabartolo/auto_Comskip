@@ -55,15 +55,19 @@ calculate_progress() {
     fi
     
     # Erfolgreich verarbeitete Videos
-    PROCESSED=$(grep -c "✓ Video verarbeitet" "$MAIN_LOG" || echo "0")
+    PROCESSED=$(grep -c "✓ Video verarbeitet" "$MAIN_LOG" 2>/dev/null || echo "0")
+    PROCESSED=${PROCESSED:-0}
     
     # Fehlgeschlagene Videos (nur echte Fehler, nicht "Überspringe")
-    FAILED_EXIT=$(grep -c "✗ Fehler (Exit:" "$MAIN_LOG" || echo "0")
-    FAILED_BLACKLIST=$(grep -c "✗ Datei ist auf Blacklist" "$MAIN_LOG" || echo "0")
+    FAILED_EXIT=$(grep -c "✗ Fehler (Exit:" "$MAIN_LOG" 2>/dev/null || echo "0")
+    FAILED_EXIT=${FAILED_EXIT:-0}
+    FAILED_BLACKLIST=$(grep -c "✗ Datei ist auf Blacklist" "$MAIN_LOG" 2>/dev/null || echo "0")
+    FAILED_BLACKLIST=${FAILED_BLACKLIST:-0}
     FAILED=$(( FAILED_EXIT + FAILED_BLACKLIST ))
     
     # Übersprungene Videos (bereits vorhanden oder zu groß)
-    SKIPPED=$(grep -cE "(Überspringe \(bereits vorhanden|Überspringe \(in Bearbeitung|✗ Überspringe)" "$MAIN_LOG" || echo "0")
+    SKIPPED=$(grep -cE "(Überspringe \(bereits vorhanden|Überspringe \(in Bearbeitung|✗ Überspringe)" "$MAIN_LOG" 2>/dev/null || echo "0")
+    SKIPPED=${SKIPPED:-0}
     
     # Fortschritt berechnen
     PROGRESS_PCT=$(( PROCESSED * 100 / TOTAL_FILES ))
