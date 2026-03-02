@@ -24,6 +24,21 @@ cd src
 
 Processes all video files from a remote mount, detects commercials, cuts them out, and converts to MKV.
 
+### Monitor Processing
+
+```bash
+cd src
+./monitor_workers.sh           # Single snapshot
+./monitor_workers.sh --watch   # Continuous monitoring (updates every 10s)
+```
+
+Shows:
+- Overall progress (% processed)
+- Active workers and their current files
+- Recent errors
+- Worker statistics
+- Blacklist status
+
 ### Retry Failed Files
 
 ```bash
