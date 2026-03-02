@@ -46,29 +46,34 @@ calculate_progress() {
         return
     fi
     
-    # Gesamtzahl der Videos
-    TOTAL_FILES=$(grep "Video-Dateien gefunden:" "$MAIN_LOG" | tail -1 | grep -oP '\d+' | head -1)
+    # Gesamtzahl der Videos (letzte Zeile mit dieser Info)
+    TOTAL_FILES=$(grep "Video-Dateien gefunden:" "$MAIN_LOG" | tail -1 | grep -oE '[0-9]+' | tail -1)
     
     if [ -z "$TOTAL_FILES" ] || [ "$TOTAL_FILES" -eq 0 ]; then
         echo "Keine Daten"
         return
     fi
     
-    # Erfolgreich verarbeitete Videos (eindeutig nach Dateiname)
-    PROCESSED=$(grep "✓ Video verarbeitet" "$MAIN_LOG" | wc -l)
+    # Erfolgreich verarbeitete Videos
+    PROCESSED=$(grep -c "✓ Video verarbeitet" "$MAIN_LOG" || echo "0")
     
-    # Fehlgeschlagene Videos
-    FAILED=$(grep -E "✗ Fehler \(Exit:|✗ Datei ist auf Blacklist|✗ Überspringe|✗ Keine Ausgabe" "$MAIN_LOG" | wc -l)
+    # Fehlgeschlagene Videos (verschiedene Fehlermuster)
+    FAILED=$(grep -cE "(✗ Fehler \(Exit:|✗ Datei ist auf Blacklist|✗ Überspringe)" "$MAIN_LOG" || echo "0")
     
     # Fortschritt berechnen
     PROGRESS_PCT=$(( PROCESSED * 100 / TOTAL_FILES ))
     REMAINING=$(( TOTAL_FILES - PROCESSED - FAILED ))
     
+    # Verhindere negative Zahlen
+    if [ "$REMAINING" -lt 0 ]; then
+        REMAINING=0
+    fi
+    
     echo -e "${BLUE}Gesamtfortschritt:${NC}"
-    echo -e "  Gesamt:        ${TOTAL_FILES} Videos"
-    echo -e "  Verarbeitet:   ${GREEN}${PROCESSED}${NC} (${PROGRESS_PCT}%)"
+    echo -e "  Gesamt:         ${TOTAL_FILES} Videos"
+    echo -e "  Verarbeitet:    ${GREEN}${PROCESSED}${NC} (${PROGRESS_PCT}%)"
     echo -e "  Fehlgeschlagen: ${RED}${FAILED}${NC}"
-    echo -e "  Verbleibend:   ${YELLOW}${REMAINING}${NC}"
+    echo -e "  Verbleibend:    ${YELLOW}${REMAINING}${NC}"
     echo ""
     
     # Fortschrittsbalken
@@ -101,9 +106,6 @@ list_active_workers() {
     echo ""
     
     # Sammel Worker-Daten
-    declare -A WORKER_FILES
-    declare -A WORKER_TIMES
-    
     find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | while IFS= read -r lock; do
         if [ -f "$lock/info" ]; then
             LOCK_INFO=$(cat "$lock/info" 2>/dev/null || echo "unknown:0")
@@ -112,11 +114,8 @@ list_active_workers() {
             NOW=$(date +%s)
             AGE_MINUTES=$(( (NOW - LOCK_TIME) / 60 ))
             
-            # Extrahiere Dateinamen aus Lock-Pfad (Hash zurück zur Datei ist schwierig)
-            LOCK_BASENAME=$(basename "$lock" .lck)
-            
-            # Finde letzte Verarbeitung dieses Workers im Log
-            CURRENT_FILE=$(grep -F "$WORKER_NAME" "$MAIN_LOG" | grep "Verarbeite:" | tail -1 | sed 's/.*Verarbeite: //' || echo "?")
+            # Finde letzte "Verarbeite:"-Zeile dieses Workers im Log
+            CURRENT_FILE=$(grep "$WORKER_NAME" "$MAIN_LOG" 2>/dev/null | grep "Verarbeite:" | tail -1 | sed -E 's/.*Verarbeite: //' || echo "unbekannt")
             
             echo -e "  ${CYAN}${WORKER_NAME}${NC}"
             echo -e "    Datei:      ${CURRENT_FILE}"
@@ -137,29 +136,31 @@ show_recent_errors() {
         return
     fi
     
-    # Letzte 5 Fehler
-    ERRORS=$(grep -E "✗ Fehler \(Exit:|Segfault|✗ Datei ist auf Blacklist" "$MAIN_LOG" | tail -5)
-    
-    if [ -z "$ERRORS" ]; then
-        echo -e "${GREEN}Keine aktuellen Fehler${NC}"
-        return
-    fi
-    
+    # Letzte 5 Fehler mit Kontext
     echo -e "${RED}Letzte Fehler:${NC}"
     echo ""
     
-    echo "$ERRORS" | while IFS= read -r line; do
-        # Extrahiere Dateinamen aus vorheriger Zeile
-        LINE_NUM=$(grep -n "$line" "$MAIN_LOG" | tail -1 | cut -d: -f1)
-        if [ -n "$LINE_NUM" ]; then
-            FILE_LINE=$(sed -n "$((LINE_NUM - 1))p" "$MAIN_LOG" | grep "Verarbeite:" || echo "")
-            if [ -n "$FILE_LINE" ]; then
-                FILENAME=$(echo "$FILE_LINE" | sed 's/.*Verarbeite: //')
-                echo -e "  ${YELLOW}${FILENAME}${NC}"
-            fi
+    # Sammel Fehler mit Dateinamen
+    grep -B 1 -E "(✗ Fehler \(Exit:|Segfault|✗ Datei ist auf Blacklist)" "$MAIN_LOG" 2>/dev/null | \
+    grep -E "(Verarbeite:|✗)" | \
+    tail -10 | \
+    while IFS= read -r line; do
+        if [[ "$line" == *"Verarbeite:"* ]]; then
+            # Extrahiere Dateinamen (alles nach "Verarbeite: ")
+            FILENAME=$(echo "$line" | sed -E 's/.*Verarbeite: //')
+            echo -e "  ${YELLOW}${FILENAME}${NC}"
+        elif [[ "$line" == *"✗"* ]]; then
+            # Zeige Fehlermeldung
+            ERROR=$(echo "$line" | sed -E 's/.*\] //')
+            echo -e "    ${RED}→${NC} ${ERROR}"
         fi
-        echo -e "    ${RED}→${NC} $(echo "$line" | sed 's/.*\] //')"
     done
+    
+    # Prüfe ob Fehler gefunden wurden
+    ERROR_COUNT=$(grep -cE "(✗ Fehler \(Exit:|Segfault|✗ Datei ist auf Blacklist)" "$MAIN_LOG" 2>/dev/null || echo "0")
+    if [ "$ERROR_COUNT" -eq 0 ]; then
+        echo -e "${GREEN}Keine Fehler im Log${NC}"
+    fi
     echo ""
 }
 
@@ -172,23 +173,37 @@ show_worker_stats() {
     echo -e "${BLUE}Worker-Statistiken (aus STATISTIK-Einträgen):${NC}"
     echo ""
     
-    # Finde alle STATISTIK-Blöcke
-    grep -A 4 "STATISTIK (" "$MAIN_LOG" | grep -E "STATISTIK \(|Erfolgreich:|Übersprungen:|Fehlgeschlagen:" | \
-    while IFS= read -r line; do
-        if [[ "$line" == *"STATISTIK ("* ]]; then
-            WORKER=$(echo "$line" | sed 's/.*STATISTIK (\(.*\)):/\1/')
-            echo -e "  ${CYAN}${WORKER}${NC}"
-        elif [[ "$line" == *"Erfolgreich:"* ]]; then
-            SUCCESS=$(echo "$line" | grep -oP '\d+')
-            echo -n -e "    Erfolgreich: ${GREEN}${SUCCESS}${NC}"
-        elif [[ "$line" == *"Übersprungen:"* ]]; then
-            SKIPPED=$(echo "$line" | grep -oP '\d+')
-            echo -n -e " | Übersprungen: ${YELLOW}${SKIPPED}${NC}"
-        elif [[ "$line" == *"Fehlgeschlagen:"* ]]; then
-            FAILED=$(echo "$line" | grep -oP '\d+')
-            echo -e " | Fehlgeschlagen: ${RED}${FAILED}${NC}"
-        fi
-    done | tail -20
+    # Finde alle STATISTIK-Blöcke und parse sie
+    grep -A 3 "STATISTIK (" "$MAIN_LOG" 2>/dev/null | \
+    awk '
+        /STATISTIK \(/ {
+            match($0, /STATISTIK \(([^)]+)\)/, arr)
+            worker = arr[1]
+        }
+        /Erfolgreich:/ {
+            match($0, /[0-9]+/, arr)
+            success = arr[0]
+        }
+        /Übersprungen:/ {
+            match($0, /[0-9]+/, arr)
+            skipped = arr[0]
+        }
+        /Fehlgeschlagen:/ {
+            match($0, /[0-9]+/, arr)
+            failed = arr[0]
+            if (worker != "") {
+                printf "  \033[0;36m%s\033[0m\n", worker
+                printf "    Erfolgreich: \033[0;32m%s\033[0m | Übersprungen: \033[1;33m%s\033[0m | Fehlgeschlagen: \033[0;31m%s\033[0m\n", success, skipped, failed
+                worker = ""
+            }
+        }
+    ' | tail -20
+    
+    # Fallback falls keine Statistiken gefunden
+    STAT_COUNT=$(grep -c "STATISTIK (" "$MAIN_LOG" 2>/dev/null || echo "0")
+    if [ "$STAT_COUNT" -eq 0 ]; then
+        echo -e "  ${YELLOW}Noch keine Statistiken verfügbar${NC}"
+    fi
     echo ""
 }
 
