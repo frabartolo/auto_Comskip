@@ -107,12 +107,28 @@ list_active_workers() {
     
     ACTIVE_LOCKS=$(find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | wc -l)
     
+    echo -e "${BLUE}Aktive Worker:${NC}"
+    echo ""
+    
+    # Zähle kürzliche Worker-Aktivitäten (letzte 5 Minuten im Log)
+    RECENT_TIME=$(date -d '5 minutes ago' '+%Y-%m-%d %H:%M' 2>/dev/null || date -v-5M '+%Y-%m-%d %H:%M' 2>/dev/null || echo "")
+    if [ -n "$RECENT_TIME" ]; then
+        RECENT_WORKERS=$(grep "Verarbeite:" "$MAIN_LOG" 2>/dev/null | tail -100 | grep -oE '\b[A-Za-z0-9_-]+-[0-9]+\b' | sort -u | wc -l)
+        echo -e "  Mit Locks:        ${GREEN}${ACTIVE_LOCKS}${NC}"
+        echo -e "  Kürzlich aktiv:   ${CYAN}${RECENT_WORKERS}${NC} (letzte 5 Min im Log)"
+        echo ""
+    else
+        echo -e "  Aktive Locks: ${GREEN}${ACTIVE_LOCKS}${NC}"
+        echo ""
+    fi
+    
     if [ "$ACTIVE_LOCKS" -eq 0 ]; then
-        echo -e "${YELLOW}Keine aktiven Worker${NC}"
+        echo -e "${YELLOW}  Keine Worker verarbeiten gerade eine Datei${NC}"
+        echo ""
         return
     fi
     
-    echo -e "${BLUE}Aktive Worker: ${GREEN}${ACTIVE_LOCKS}${NC}"
+    echo -e "${BLUE}Worker mit aktiven Locks:${NC}"
     echo ""
     
     # Sammel Worker-Daten
@@ -124,10 +140,13 @@ list_active_workers() {
             NOW=$(date +%s)
             AGE_MINUTES=$(( (NOW - LOCK_TIME) / 60 ))
             
+            # Extrahiere Hostname
+            HOSTNAME=$(echo "$WORKER_NAME" | cut -d- -f1)
+            
             # Finde letzte "Verarbeite:"-Zeile dieses Workers im Log
             CURRENT_FILE=$(grep "$WORKER_NAME" "$MAIN_LOG" 2>/dev/null | grep "Verarbeite:" | tail -1 | sed -E 's/.*Verarbeite: //' || echo "unbekannt")
             
-            echo -e "  ${CYAN}${WORKER_NAME}${NC}"
+            echo -e "  ${CYAN}${WORKER_NAME}${NC} (${HOSTNAME})"
             echo -e "    Datei:      ${CURRENT_FILE}"
             echo -e "    Seit:       ${AGE_MINUTES} Minuten"
             
