@@ -248,8 +248,6 @@ log_message "=========================================="
 log_message "Start Verarbeitung: $(date)"
 log_message "=========================================="
 
-LAST_LOCK_REFRESH=0
-
 find "$SOURCE_MOUNT_DIR" -type f \
     \( -iname "*.mp4" -o -iname "*.m4v" -o -iname "*.mkv" -o -iname "*.ts" \
     -o -iname "*.mpeg" -o -iname "*.mpg" -o -iname "*.mov" -o -iname "*.webm" \
@@ -388,22 +386,23 @@ while IFS= read -r FILE; do
     log_message "Schritt 2: FFmpeg..."
     refresh_lock "$LOCK_KEY"
 
-    # Background Lock-Refresh
+    # Background Lock-Refresh (läuft parallel zu Python)
     (
-        while kill -0 $$ 2>/dev/null; do
-            NOW=$(date +%s)
-            if [ $((NOW - LAST_LOCK_REFRESH)) -ge $LOCK_REFRESH_INTERVAL ]; then
-                refresh_lock "$LOCK_KEY"
-                LAST_LOCK_REFRESH=$NOW
-            fi
-            sleep 60
+        while sleep 60; do
+            refresh_lock "$LOCK_KEY"
         done
     ) &
     REFRESH_PID=$!
 
-    python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_ARG" "$TARGET_FILE" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG" < /dev/null
+    # Python mit Timeout (verhindert Hänger)
+    python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_ARG" "$TARGET_FILE" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG" < /dev/null &
+    PYTHON_PID=$!
+    
+    # Warte auf Python und beende Lock-Refresh danach
+    wait $PYTHON_PID 2>/dev/null
     PYTHON_EXIT=$?
-
+    
+    # Stoppe Lock-Refresh
     kill $REFRESH_PID 2>/dev/null || true
     wait $REFRESH_PID 2>/dev/null || true
 
