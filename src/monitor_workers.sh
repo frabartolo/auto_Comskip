@@ -57,12 +57,17 @@ calculate_progress() {
     # Erfolgreich verarbeitete Videos
     PROCESSED=$(grep -c "✓ Video verarbeitet" "$MAIN_LOG" || echo "0")
     
-    # Fehlgeschlagene Videos (verschiedene Fehlermuster)
-    FAILED=$(grep -cE "(✗ Fehler \(Exit:|✗ Datei ist auf Blacklist|✗ Überspringe)" "$MAIN_LOG" || echo "0")
+    # Fehlgeschlagene Videos (nur echte Fehler, nicht "Überspringe")
+    FAILED_EXIT=$(grep -c "✗ Fehler (Exit:" "$MAIN_LOG" || echo "0")
+    FAILED_BLACKLIST=$(grep -c "✗ Datei ist auf Blacklist" "$MAIN_LOG" || echo "0")
+    FAILED=$(( FAILED_EXIT + FAILED_BLACKLIST ))
+    
+    # Übersprungene Videos (bereits vorhanden oder zu groß)
+    SKIPPED=$(grep -cE "(Überspringe \(bereits vorhanden|Überspringe \(in Bearbeitung|✗ Überspringe)" "$MAIN_LOG" || echo "0")
     
     # Fortschritt berechnen
     PROGRESS_PCT=$(( PROCESSED * 100 / TOTAL_FILES ))
-    REMAINING=$(( TOTAL_FILES - PROCESSED - FAILED ))
+    REMAINING=$(( TOTAL_FILES - PROCESSED - FAILED - SKIPPED ))
     
     # Verhindere negative Zahlen
     if [ "$REMAINING" -lt 0 ]; then
@@ -72,8 +77,9 @@ calculate_progress() {
     echo -e "${BLUE}Gesamtfortschritt:${NC}"
     echo -e "  Gesamt:         ${TOTAL_FILES} Videos"
     echo -e "  Verarbeitet:    ${GREEN}${PROCESSED}${NC} (${PROGRESS_PCT}%)"
+    echo -e "  Übersprungen:   ${YELLOW}${SKIPPED}${NC}"
     echo -e "  Fehlgeschlagen: ${RED}${FAILED}${NC}"
-    echo -e "  Verbleibend:    ${YELLOW}${REMAINING}${NC}"
+    echo -e "  Verbleibend:    ${CYAN}${REMAINING}${NC}"
     echo ""
     
     # Fortschrittsbalken
@@ -173,24 +179,39 @@ show_worker_stats() {
     echo -e "${BLUE}Worker-Statistiken (aus STATISTIK-Einträgen):${NC}"
     echo ""
     
-    # Finde alle STATISTIK-Blöcke und parse sie
+    # Finde alle STATISTIK-Blöcke und parse sie mit einfacherem awk
     grep -A 3 "STATISTIK (" "$MAIN_LOG" 2>/dev/null | \
     awk '
         /STATISTIK \(/ {
-            match($0, /STATISTIK \(([^)]+)\)/, arr)
-            worker = arr[1]
+            # Extrahiere Worker-Name zwischen ( und )
+            sub(/.*STATISTIK \(/, "")
+            sub(/\):.*/, "")
+            worker = $0
         }
         /Erfolgreich:/ {
-            match($0, /[0-9]+/, arr)
-            success = arr[0]
+            # Extrahiere letzte Zahl
+            for(i=NF; i>=1; i--) {
+                if($i ~ /^[0-9]+$/) {
+                    success = $i
+                    break
+                }
+            }
         }
         /Übersprungen:/ {
-            match($0, /[0-9]+/, arr)
-            skipped = arr[0]
+            for(i=NF; i>=1; i--) {
+                if($i ~ /^[0-9]+$/) {
+                    skipped = $i
+                    break
+                }
+            }
         }
         /Fehlgeschlagen:/ {
-            match($0, /[0-9]+/, arr)
-            failed = arr[0]
+            for(i=NF; i>=1; i--) {
+                if($i ~ /^[0-9]+$/) {
+                    failed = $i
+                    break
+                }
+            }
             if (worker != "") {
                 printf "  \033[0;36m%s\033[0m\n", worker
                 printf "    Erfolgreich: \033[0;32m%s\033[0m | Übersprungen: \033[1;33m%s\033[0m | Fehlgeschlagen: \033[0;31m%s\033[0m\n", success, skipped, failed
