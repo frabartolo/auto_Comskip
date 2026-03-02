@@ -386,7 +386,7 @@ while IFS= read -r FILE; do
     log_message "Schritt 2: FFmpeg..."
     refresh_lock "$LOCK_KEY"
 
-    # Background Lock-Refresh (läuft parallel zu Python)
+    # Background Lock-Refresh (aktualisiert Lock alle 60s während Python läuft)
     (
         while sleep 60; do
             refresh_lock "$LOCK_KEY"
@@ -394,16 +394,16 @@ while IFS= read -r FILE; do
     ) &
     REFRESH_PID=$!
 
-    # Python mit Timeout (verhindert Hänger)
+    # Python-Verarbeitung (läuft parallel zum Lock-Refresh)
     python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_ARG" "$TARGET_FILE" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG" < /dev/null &
     PYTHON_PID=$!
     
-    # Warte auf Python und beende Lock-Refresh danach
-    wait $PYTHON_PID 2>/dev/null
+    # Warte auf Python-Ende (blockiert hier bis Python fertig ist)
+    wait $PYTHON_PID
     PYTHON_EXIT=$?
     
-    # Stoppe Lock-Refresh
-    kill $REFRESH_PID 2>/dev/null || true
+    # Stoppe Lock-Refresh sofort nach Python-Ende
+    kill $REFRESH_PID 2>/dev/null
     wait $REFRESH_PID 2>/dev/null || true
 
     if [ $PYTHON_EXIT -eq 0 ] && [ -f "$TARGET_FILE" ]; then

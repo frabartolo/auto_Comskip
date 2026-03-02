@@ -524,24 +524,33 @@ def cut_video_with_concat_demuxer(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def build_filter_complex(keep_segments: List[Tuple[float, Optional[float]]]) -> str:
+def build_filter_complex(keep_segments: List[Tuple[float, Optional[float]]], has_audio: bool = True) -> str:
     """Build an FFmpeg filter_complex string (for small files only)."""
     v_filters = []
     a_filters = []
     for i, (s, e) in enumerate(keep_segments):
         end_str = f":end={e}" if e is not None else ""
         v_filters.append(f"[0:v]trim=start={s}{end_str},setpts=PTS-STARTPTS[v{i}]")
-        a_filters.append(f"[0:a]atrim=start={s}{end_str},asetpts=PTS-STARTPTS[a{i}]")
+        if has_audio:
+            a_filters.append(f"[0:a]atrim=start={s}{end_str},asetpts=PTS-STARTPTS[a{i}]")
 
-    concat_inputs = "".join([f"[v{i}][a{i}]" for i in range(len(keep_segments))])
     filter_parts = []
     if v_filters:
         filter_parts.append("; ".join(v_filters) + "; ")
     if a_filters:
         filter_parts.append("; ".join(a_filters) + "; ")
-    filter_parts.append(
-        f"{concat_inputs}concat=n={len(keep_segments)}:v=1:a=1[outv][outa]"
-    )
+    
+    if has_audio:
+        concat_inputs = "".join([f"[v{i}][a{i}]" for i in range(len(keep_segments))])
+        filter_parts.append(
+            f"{concat_inputs}concat=n={len(keep_segments)}:v=1:a=1[outv][outa]"
+        )
+    else:
+        concat_inputs = "".join([f"[v{i}]" for i in range(len(keep_segments))])
+        filter_parts.append(
+            f"{concat_inputs}concat=n={len(keep_segments)}:v=1:a=0[outv]"
+        )
+    
     return "".join(filter_parts)
 
 
@@ -555,7 +564,16 @@ def cut_video_with_filter_complex(
 ) -> int:
     """Cut video using filter_complex (original method, for small files)."""
     
-    filter_complex = build_filter_complex(keep_segments)
+    # Check if file has audio stream
+    has_audio = True
+    try:
+        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1", input_file]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, check=False)
+        has_audio = result.stdout.strip() == "audio"
+    except:
+        pass  # Assume has audio if probe fails
+    
+    filter_complex = build_filter_complex(keep_segments, has_audio=has_audio)
     
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", input_file]
 
@@ -565,7 +583,12 @@ def cut_video_with_filter_complex(
     else:
         has_srt = False
 
-    cmd.extend(["-filter_complex", filter_complex, "-map", "[outv]", "-map", "[outa]"])
+    cmd.extend(["-filter_complex", filter_complex])
+    
+    if has_audio:
+        cmd.extend(["-map", "[outv]", "-map", "[outa]"])
+    else:
+        cmd.extend(["-map", "[outv]"])
 
     if has_srt:
         cmd.extend(["-map", "1:0", "-c:s", "srt", "-metadata:s:s:0", "language=ger"])
@@ -578,11 +601,12 @@ def cut_video_with_filter_complex(
         "-c:v", "libx264",
         "-crf", "21",
         "-preset", "faster",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-y",
-        output_file,
     ])
+    
+    if has_audio:
+        cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+    
+    cmd.extend(["-y", output_file])
 
     try:
         if log_file:
@@ -591,7 +615,8 @@ def cut_video_with_filter_complex(
                     f"\n=== FFmpeg Processing (filter_complex): "
                     f"{os.path.basename(input_file)} ===\n"
                 )
-                f_log.write(f"Keep segments: {len(keep_segments)}\n\n")
+                f_log.write(f"Keep segments: {len(keep_segments)}\n")
+                f_log.write(f"Audio stream: {'present' if has_audio else 'absent'}\n\n")
                 rc = subprocess.run(
                     cmd, stdout=f_log, stderr=f_log, check=False
                 ).returncode
@@ -678,14 +703,26 @@ def cut_video(
             f.write(f"File size: {file_size_mb:.1f}MB, Segments: {num_segments}\n")
             f.write(f"Method: {'concat_demuxer (memory-efficient)' if use_concat else 'filter_complex (fast)'}\n")
     
+    # Try selected method first
     if use_concat:
-        return cut_video_with_concat_demuxer(
+        result = cut_video_with_concat_demuxer(
             input_file, keep_segments, output_file, srt_file, txt_file, log_file
         )
     else:
-        return cut_video_with_filter_complex(
+        result = cut_video_with_filter_complex(
             input_file, keep_segments, output_file, srt_file, txt_file, log_file
         )
+    
+    # If filter_complex failed, try concat_demuxer as fallback
+    if result == 6 and not use_concat:
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write("[INFO] filter_complex failed, retrying with concat_demuxer...\n")
+        result = cut_video_with_concat_demuxer(
+            input_file, keep_segments, output_file, srt_file, txt_file, log_file
+        )
+    
+    return result
 
 
 if __name__ == "__main__":
