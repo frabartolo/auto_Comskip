@@ -15,7 +15,21 @@ automated removal of commercials from videos
 
 ## Usage
 
-### Main Processing
+### Main Processing (NEU: rsync-Modus, ohne sshfs)
+
+```bash
+cd src
+./auto_process_rsync.sh
+```
+
+**Empfohlen bei mehreren Rechnern** – verhindert gleichzeitige Netzwerk-Last (z.B. Proxmox e1000e-Hang):
+- Lädt Dateien per rsync vom Quell-Server lokal herunter
+- Prüft mit ffprobe, repariert mit ffmpeg bei Bedarf
+- Comskip + FFmpeg-Recodierung lokal
+- Kopiert Ergebnis per rsync auf Ziel-Server
+- **Globaler Netzwerk-Lock**: Nur ein Rechner nutzt gleichzeitig das Netzwerk
+
+### Main Processing (Legacy: sshfs-Mount)
 
 ```bash
 cd src
@@ -81,4 +95,6 @@ Edit paths in `src/auto_process.sh` and `src/retry_failed.sh`:
 - `comskip` - Commercial detection
 - `ffmpeg` / `ffprobe` - Video processing
 - `python3` - Processing script
-- `sshfs` / `sshpass` - For remote mounts (auto_process.sh only)
+- `sshpass` - Für SSH-Authentifizierung (beide Scripts)
+- `rsync` - Für auto_process_rsync.sh (ersetzt sshfs)
+- `sshfs` - Nur für auto_process.sh (Legacy-Modus)
