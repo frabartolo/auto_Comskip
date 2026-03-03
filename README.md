@@ -22,12 +22,10 @@ cd src
 ./auto_process_rsync.sh
 ```
 
-**Empfohlen bei mehreren Rechnern** – verhindert gleichzeitige Netzwerk-Last (z.B. Proxmox e1000e-Hang):
-- Lädt Dateien per rsync vom Quell-Server lokal herunter
-- Prüft mit ffprobe, repariert mit ffmpeg bei Bedarf
-- Comskip + FFmpeg-Recodierung lokal
-- Kopiert Ergebnis per rsync auf Ziel-Server
-- **Globaler Netzwerk-Lock**: Nur ein Rechner nutzt gleichzeitig das Netzwerk
+**Empfohlen bei mehreren Rechnern** – Rechenarbeit verteilt, Netzwerkzugriff serialisiert:
+- **Nur Netzwerk serialisiert**: rsync (Lesen/Schreiben) läuft immer nur für einen Rechner; verhindert e1000e-Hang (Proxmox)
+- **Rechenleistung parallel**: ffprobe, Comskip, FFmpeg laufen lokal auf jedem Rechner gleichzeitig
+- Ablauf: Datei per rsync holen → Lock freigeben → lokal verarbeiten → Lock holen → Ergebnis per rsync ablegen
 
 ### Main Processing (Legacy: sshfs-Mount)
 

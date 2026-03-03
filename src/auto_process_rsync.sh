@@ -11,8 +11,9 @@
 # 6. Blacklist/Log auf Ziel-Server aktualisieren
 # 7. Lokale Temp-Dateien löschen
 #
-# WICHTIG: Globaler Netzwerk-Lock stellt sicher, dass nur EIN Rechner
-# gleichzeitig das Netzwerk nutzt (verhindert Proxmox e1000e-Hang)
+# WICHTIG: Globaler Netzwerk-Lock NUR während rsync (in/out) - die Rechenarbeit
+# (Comskip, FFmpeg) läuft parallel auf allen Rechnern. Serialisiert wird nur
+# der Netzwerkzugriff (verhindert Proxmox e1000e-Hang bei gleichzeitigem Transfer).
 #
 
 set -e
@@ -281,14 +282,8 @@ while IFS= read -r REMOTE_FILE; do
     fi
 
     LOCK_KEY=$(generate_lock_key "$REL_PATH")
-    if ! acquire_global_lock; then
-        log_message "Kein Global-Lock erhalten - beende."
-        break
-    fi
-
     if ! try_claim_file "$LOCK_KEY"; then
         echo "Überspringe (in Bearbeitung): $FILENAME"
-        release_global_lock
         ((SKIPPED++)) || true
         continue
     fi
@@ -300,8 +295,14 @@ while IFS= read -r REMOTE_FILE; do
     LOCAL_OUTPUT="$TEMP_DIR/output_${FILE_BASE}.mkv"
     mkdir -p "$TEMP_DIR"
 
-    # 1. rsync vom Quell-Server
-    log_message "Schritt 1: Lade Datei vom Quell-Server..."
+    # 1. rsync vom Quell-Server (NUR HIER: Globaler Netzwerk-Lock)
+    if ! acquire_global_lock; then
+        log_message "Kein Global-Lock erhalten - überspringe"
+        release_file "$LOCK_KEY"
+        ((SKIPPED++)) || true
+        continue
+    fi
+    log_message "Schritt 1: Lade Datei (+ Sidecars) vom Quell-Server..."
     if ! rsync -avz -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
         "$SSH_USER@$SOURCE_SSH_HOST:$REMOTE_FILE" "$LOCAL_INPUT" 2>/dev/null; then
         log_message "  ✗ rsync von Quell-Server fehlgeschlagen"
@@ -311,6 +312,12 @@ while IFS= read -r REMOTE_FILE; do
         rm -f "$LOCAL_INPUT"
         continue
     fi
+    REMOTE_BASE="${REMOTE_FILE%.*}"
+    for ext in srt txt xml; do
+        rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+            "$SSH_USER@$SOURCE_SSH_HOST:${REMOTE_BASE}.${ext}" "$TEMP_DIR/" 2>/dev/null || true
+    done
+    release_global_lock
 
     # 2. ffprobe / Repair
     log_message "Schritt 2: Prüfe Datei..."
@@ -325,7 +332,6 @@ while IFS= read -r REMOTE_FILE; do
             log_message "  ✗ Reparatur fehlgeschlagen"
             add_to_blacklist_remote "$FILENAME"
             release_file "$LOCK_KEY"
-            release_global_lock
             ((FAILED++)) || true
             rm -f "$LOCAL_INPUT" "$TEMP_REPAIRED"
             continue
@@ -349,33 +355,13 @@ while IFS= read -r REMOTE_FILE; do
     # 4. cut_with_edl.py
     log_message "Schritt 4: FFmpeg-Recodierung..."
 
-    REMOTE_BASE="${REMOTE_FILE%.*}"
     SRT_ARG="none"
     METADATA_ARG="none"
-    SRT_FILE=""
-    TXT_FILE=""
-    XML_FILE=""
-
-    ssh_cmd "$SOURCE_SSH_HOST" "[ -f '${REMOTE_BASE}.srt' ]" 2>/dev/null && SRT_FILE="${REMOTE_BASE}.srt"
-    ssh_cmd "$SOURCE_SSH_HOST" "[ -f '${REMOTE_BASE}.txt' ]" 2>/dev/null && TXT_FILE="${REMOTE_BASE}.txt"
-    ssh_cmd "$SOURCE_SSH_HOST" "[ -f '${REMOTE_BASE}.xml' ]" 2>/dev/null && XML_FILE="${REMOTE_BASE}.xml"
+    [ -f "$TEMP_DIR/$(basename "${REMOTE_BASE}.srt")" ] 2>/dev/null && SRT_ARG="$TEMP_DIR/$(basename "${REMOTE_BASE}.srt")"
+    [ -f "$TEMP_DIR/$(basename "${REMOTE_BASE}.txt")" ] 2>/dev/null && METADATA_ARG="$TEMP_DIR/$(basename "${REMOTE_BASE}.txt")"
+    [ -z "$METADATA_ARG" ] || [ "$METADATA_ARG" = "none" ] && [ -f "$TEMP_DIR/$(basename "${REMOTE_BASE}.xml")" ] 2>/dev/null && METADATA_ARG="$TEMP_DIR/$(basename "${REMOTE_BASE}.xml")"
 
     cp -f "$WORK_DIR/blacklist.txt" "$WORK_DIR/corrupted_files.blacklist" 2>/dev/null || true
-
-    if [ -n "$SRT_FILE" ]; then
-        rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-            "$SSH_USER@$SOURCE_SSH_HOST:$SRT_FILE" "$TEMP_DIR/$(basename "$SRT_FILE")" 2>/dev/null && SRT_ARG="$TEMP_DIR/$(basename "$SRT_FILE")"
-    fi
-    if [ -n "$TXT_FILE" ]; then
-        rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-            "$SSH_USER@$SOURCE_SSH_HOST:$TXT_FILE" "$TEMP_DIR/$(basename "$TXT_FILE")" 2>/dev/null && METADATA_ARG="$TEMP_DIR/$(basename "$TXT_FILE")"
-    fi
-    if [ -z "$METADATA_ARG" ] || [ "$METADATA_ARG" = "none" ]; then
-        if [ -n "$XML_FILE" ]; then
-            rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-                "$SSH_USER@$SOURCE_SSH_HOST:$XML_FILE" "$TEMP_DIR/$(basename "$XML_FILE")" 2>/dev/null && METADATA_ARG="$TEMP_DIR/$(basename "$XML_FILE")"
-        fi
-    fi
 
     if python3 "$PYTHON_SCRIPT" "$WORKING_FILE" "$EDL_ARG" "$LOCAL_OUTPUT" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG_LOCAL" < /dev/null; then
         PYTHON_EXIT=0
@@ -384,22 +370,28 @@ while IFS= read -r REMOTE_FILE; do
     fi
 
     if [ $PYTHON_EXIT -eq 0 ] && [ -f "$LOCAL_OUTPUT" ]; then
-        # 5. rsync zum Ziel-Server
-        log_message "Schritt 5: Kopiere auf Ziel-Server..."
-        ssh_cmd "$TARGET_SSH_HOST" "mkdir -p $TARGET_REL_DIR" 2>/dev/null || true
-        if rsync -avz -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-            "$LOCAL_OUTPUT" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$TARGET_FILENAME" 2>/dev/null; then
-
-            [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-                "$SRT_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.srt" 2>/dev/null || true
-            [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-                "$METADATA_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.${METADATA_ARG##*.}" 2>/dev/null || true
-
-            log_message "  ✓ Erfolgreich verarbeitet"
-            ((PROCESSED++)) || true
-        else
-            log_message "  ✗ rsync zum Ziel fehlgeschlagen"
+        # 5. rsync zum Ziel-Server (NUR HIER: Globaler Netzwerk-Lock)
+        if ! acquire_global_lock; then
+            log_message "  ✗ Kein Global-Lock zum Kopieren - Ergebnis bleibt lokal"
             ((FAILED++)) || true
+        else
+            log_message "Schritt 5: Kopiere auf Ziel-Server..."
+            ssh_cmd "$TARGET_SSH_HOST" "mkdir -p $TARGET_REL_DIR" 2>/dev/null || true
+            if rsync -avz -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+                "$LOCAL_OUTPUT" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$TARGET_FILENAME" 2>/dev/null; then
+
+                [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+                    "$SRT_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.srt" 2>/dev/null || true
+                [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+                    "$METADATA_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.${METADATA_ARG##*.}" 2>/dev/null || true
+
+                log_message "  ✓ Erfolgreich verarbeitet"
+                ((PROCESSED++)) || true
+            else
+                log_message "  ✗ rsync zum Ziel fehlgeschlagen"
+                ((FAILED++)) || true
+            fi
+            release_global_lock
         fi
     elif [ $PYTHON_EXIT -eq 9 ] || [ $PYTHON_EXIT -eq 6 ]; then
         add_to_blacklist_remote "$FILENAME"
@@ -410,7 +402,6 @@ while IFS= read -r REMOTE_FILE; do
     fi
 
     release_file "$LOCK_KEY"
-    release_global_lock
 
     rm -f "$LOCAL_INPUT" "$LOCAL_OUTPUT" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml" 2>/dev/null || true
 
