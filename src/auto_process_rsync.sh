@@ -57,8 +57,9 @@ RENAMED=0
 WORKER_ID="$(hostname)-$$"
 
 # --- HILFSFUNKTIONEN ---
+# WICHTIG: </dev/null bei allen SSH-Befehlen, damit stdin (Dateiliste) nicht verbraucht wird!
 ssh_cmd() {
-    sshpass -p "$SSH_PASS" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$SSH_USER@$1" "$2"
+    sshpass -p "$SSH_PASS" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -n "$SSH_USER@$1" "$2"
 }
 
 rsync_from() {
