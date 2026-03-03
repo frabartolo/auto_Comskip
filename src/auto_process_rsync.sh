@@ -409,7 +409,7 @@ while IFS= read -r REMOTE_FILE; do
 
     release_file "$LOCK_KEY"
 
-    rm -f "$LOCAL_INPUT" "$LOCAL_OUTPUT" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml" 2>/dev/null || true
+    rm -f "$LOCAL_INPUT" "$LOCAL_OUTPUT" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml 2>/dev/null || true
 
 done < "$FILE_LIST"
 
@@ -417,18 +417,11 @@ rm -f "$FILE_LIST"
 
 # --- UMBENENNUNG (auf Ziel-Server) ---
 log_message "Prüfe Umbenennung..."
-ssh_cmd "$TARGET_SSH_HOST" "
-  find $TARGET_REMOTE_PATH -type f -name '*__*.mkv' 2>/dev/null | while read -r f; do
-    d=\$(dirname \"\$f\")
-    b=\$(basename \"\$f\" .mkv)
-    n=\$(echo \"\$b\" | sed 's/__.*//')
-    [ -f \"\$d/\$n.mkv\" ] && continue
-    [ \"\$b\" != \"\$n\" ] && mv \"\$f\" \"\$d/\$n.mkv\"
-    for ext in txt xml srt; do
-      [ -f \"\$d/\$b.\$ext\" ] && [ ! -f \"\$d/\$n.\$ext\" ] && mv \"\$d/\$b.\$ext\" \"\$d/\$n.\$ext\"
-    done
-  done
-" 2>/dev/null || true
+_rename_script="$(dirname "$0")/rename_duplicates_remote.sh"
+if [ -f "$_rename_script" ]; then
+  sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no -q "$_rename_script" "$SSH_USER@$TARGET_SSH_HOST:/tmp/rename_$$.sh" 2>/dev/null && \
+  sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_SSH_HOST" "bash /tmp/rename_$$.sh $TARGET_REMOTE_PATH; rm -f /tmp/rename_$$.sh" 2>/dev/null || true
+fi
 
 # --- LOG SYNC ---
 append_log_to_remote
@@ -436,13 +429,13 @@ append_log_to_remote
 # --- CLEANUP ---
 log_message "=========================================="
 log_message "Ende: $(date)"
-log_message "STATISTIK ($WORKER_ID): Erfolgreich: $PROCESSED | Übersprungen: $SKIPPED | Fehler: $FAILED"
+log_message "STATISTIK - $WORKER_ID: Erfolgreich: $PROCESSED, Übersprungen: $SKIPPED, Fehler: $FAILED"
 log_message "=========================================="
 append_log_to_remote
 
 rm -rf "$WORK_DIR"
 
 echo ""
-echo "Fertig! Erfolgreich: $PROCESSED | Übersprungen: $SKIPPED | Fehler: $FAILED"
+echo "Fertig! Erfolgreich: $PROCESSED, Übersprungen: $SKIPPED, Fehler: $FAILED"
 
 exit 0
