@@ -23,11 +23,12 @@ set -u
 CRED_FILE="$HOME/.smbcredentials"
 
 # === QUELL-SERVER ===
-SOURCE_SSH_HOST="cold-lairs"
+# Host: Kurzname, FQDN oder IP. Bei Namensauflösungsproblemen: SOURCE_SSH_HOST=192.168.x.x
+SOURCE_SSH_HOST="${SOURCE_SSH_HOST:-cold-lairs}"
 SOURCE_REMOTE_PATH="/var/opt/shares/Videos"
 
 # === ZIEL-SERVER ===
-TARGET_SSH_HOST="khanhiwara"
+TARGET_SSH_HOST="${TARGET_SSH_HOST:-khanhiwara}"
 TARGET_REMOTE_PATH="/srv/data/Videos"
 
 # Arbeitspfade (alles lokal)
@@ -217,15 +218,20 @@ log_message "Worker: $WORKER_ID"
 log_message "Quell-Server: $SOURCE_SSH_HOST"
 log_message "Ziel-Server: $TARGET_SSH_HOST"
 
-# SSH-Verbindung prüfen
-if ! ssh_cmd "$SOURCE_SSH_HOST" "echo OK" >/dev/null 2>&1; then
-    log_message "FEHLER: Keine SSH-Verbindung zu $SOURCE_SSH_HOST"
-    exit 1
-fi
-if ! ssh_cmd "$TARGET_SSH_HOST" "echo OK" >/dev/null 2>&1; then
-    log_message "FEHLER: Keine SSH-Verbindung zu $TARGET_SSH_HOST"
-    exit 1
-fi
+# SSH-Verbindung prüfen (zeigt echten Fehler bei Misserfolg)
+check_ssh() {
+    local host="$1"
+    local err
+    err=$(sshpass -p "$SSH_PASS" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$SSH_USER@$host" "echo OK" 2>&1)
+    local ret=$?
+    if [ $ret -eq 0 ]; then return 0; fi
+    log_message "FEHLER: Keine SSH-Verbindung zu $host (Exit $ret)"
+    log_message "  -> SSH-Ausgabe: $err"
+    echo "Tipp: Prüfe Host-Auflösung (ping $host), SSH-Port und ~/.smbcredentials (username/password)"
+    return 1
+}
+if ! check_ssh "$SOURCE_SSH_HOST"; then exit 1; fi
+if ! check_ssh "$TARGET_SSH_HOST"; then exit 1; fi
 
 # Dateiliste holen (ohne Global-Lock - kleines Kommando)
 log_message "Hole Dateiliste..."

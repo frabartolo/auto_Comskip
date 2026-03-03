@@ -80,6 +80,15 @@ cat /srv/data/Videos/corrupted_files.blacklist
 sed -i '/filename.ts/d' /srv/data/Videos/corrupted_files.blacklist
 ```
 
+## Troubleshooting (auto_process_rsync.sh)
+
+**„Keine SSH-Verbindung zu cold-lairs“** – häufige Ursachen:
+- **Hostname-Auflösung**: Kurzname `cold-lairs` funktioniert oft nur im lokalen Netz mit mDNS. Prüfen: `ping cold-lairs` bzw. `ping cold-lairs.local`
+- **Lösung**: IP oder FQDN verwenden, z.B.  
+  `SOURCE_SSH_HOST=192.168.1.50 TARGET_SSH_HOST=192.168.1.51 ./auto_process_rsync.sh`
+- Credentials in `~/.smbcredentials` mit `username=` und `password=`
+- Das Skript gibt nun die echte SSH-Fehlermeldung aus – hilft bei der Diagnose
+
 ## Configuration
 
 Edit paths in `src/auto_process.sh` and `src/retry_failed.sh`:
@@ -87,6 +96,9 @@ Edit paths in `src/auto_process.sh` and `src/retry_failed.sh`:
 - `TARGET_BASE` - Destination directory
 - `MAIN_LOG` - Log file location
 - `COMSKIP_INI` - Comskip configuration
+
+Für `auto_process_rsync.sh`: Hosts und Pfade im Skript-Kopf; alternativ per Umgebungsvariable:
+- `SOURCE_SSH_HOST`, `TARGET_SSH_HOST` – Hostname, FQDN oder IP
 
 ## Requirements
 
