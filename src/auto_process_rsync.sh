@@ -106,7 +106,8 @@ is_blacklisted() {
 add_to_blacklist_remote() {
     local filename="$1"
     log_message "  -> Füge zu Blacklist hinzu: $filename"
-    printf '%s\n' "$filename" | sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_SSH_HOST" "cat >> $BLACKLIST_REMOTE" 2>/dev/null || log_message "  ⚠ Blacklist-Update fehlgeschlagen"
+    printf '%s\n' "$filename" >> "$WORK_DIR/blacklist.txt"
+    printf '%s\n' "$filename" | sshpass -p "$SSH_PASS" ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "$SSH_USER@$TARGET_SSH_HOST" "cat >> $BLACKLIST_REMOTE" 2>/dev/null || log_message "  ⚠ Blacklist-Update fehlgeschlagen"
 }
 
 # --- LOCK-FUNKTIONEN ---
@@ -252,6 +253,21 @@ fi
 
 [ ! -f "$PYTHON_SCRIPT" ] && { log_message "FEHLER: $PYTHON_SCRIPT nicht gefunden"; exit 1; }
 
+# --- EINMALIG: Blacklist + vorhandene MKV-Dateien laden (spart tausende SSH-Roundtrips) ---
+log_message "Lade Blacklist und Liste vorhandener Dateien..."
+fetch_blacklist
+ssh_cmd "$TARGET_SSH_HOST" "find $TARGET_REMOTE_PATH -type f -name '*.mkv' 2>/dev/null" 2>/dev/null > "$WORK_DIR/existing_mkv.txt" || touch "$WORK_DIR/existing_mkv.txt"
+
+is_already_on_target() {
+    local path="$1"
+    [ ! -f "$WORK_DIR/existing_mkv.txt" ] && return 1
+    grep -qxF "$path" "$WORK_DIR/existing_mkv.txt" 2>/dev/null
+}
+
+add_to_existing_list() {
+    echo "$1" >> "$WORK_DIR/existing_mkv.txt"
+}
+
 # --- VERARBEITUNG ---
 while IFS= read -r REMOTE_FILE; do
     [ -z "$REMOTE_FILE" ] && continue
@@ -265,8 +281,7 @@ while IFS= read -r REMOTE_FILE; do
     TARGET_FILENAME="${FILE_BASE}.mkv"
     TARGET_REMOTE_FILE="$TARGET_REL_DIR/$TARGET_FILENAME"
 
-    # Blacklist
-    fetch_blacklist
+    # Blacklist (einmal geladen)
     if is_blacklisted "$FILENAME"; then
         echo "Überspringe (Blacklist): $FILENAME"
         ((SKIPPED++)) || true
@@ -276,13 +291,13 @@ while IFS= read -r REMOTE_FILE; do
     CLEAN_NAME=$(echo "$FILE_BASE" | sed 's/__.*//')
     TARGET_CLEAN="$TARGET_REL_DIR/$CLEAN_NAME.mkv"
 
-    # Bereits vorhanden?
-    if ssh_cmd "$TARGET_SSH_HOST" "[ -f \"$TARGET_REL_DIR/$TARGET_FILENAME\" ]" 2>/dev/null; then
+    # Bereits vorhanden? (lokale Liste, kein SSH pro Datei)
+    if is_already_on_target "$TARGET_REL_DIR/$TARGET_FILENAME"; then
         echo "Überspringe (bereits vorhanden): $TARGET_FILENAME"
         ((SKIPPED++)) || true
         continue
     fi
-    if [ "$FILENAME" != "$CLEAN_NAME" ] && ssh_cmd "$TARGET_SSH_HOST" "[ -f \"$TARGET_CLEAN\" ]" 2>/dev/null; then
+    if [ "$FILENAME" != "$CLEAN_NAME" ] && is_already_on_target "$TARGET_CLEAN"; then
         echo "Überspringe (bereits als $CLEAN_NAME.mkv)"
         ((SKIPPED++)) || true
         continue
@@ -393,6 +408,7 @@ while IFS= read -r REMOTE_FILE; do
                     "$METADATA_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.${METADATA_ARG##*.}" 2>/dev/null || true
 
                 log_message "  ✓ Erfolgreich verarbeitet"
+                add_to_existing_list "$TARGET_REL_DIR/$TARGET_FILENAME"
                 ((PROCESSED++)) || true
             else
                 log_message "  ✗ rsync zum Ziel fehlgeschlagen"
