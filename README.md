@@ -89,6 +89,16 @@ sed -i '/filename.ts/d' /srv/data/Videos/corrupted_files.blacklist
 - Credentials in `~/.smbcredentials` mit `username=` und `password=`
 - Das Skript gibt nun die echte SSH-Fehlermeldung aus – hilft bei der Diagnose
 
+**rsync zum Ziel fehlgeschlagen** – Skript bricht ab, damit die Platten nicht volllaufen:
+- Fertige Dateien werden unter `~/comskip_failed_uploads/` (oder `FAILED_UPLOAD_DIR`) gesichert
+- Die rsync-Fehlermeldung wird ins Log und auf die Konsole geschrieben
+- Nach Behebung: gesicherte Dateien manuell nachziehen, Skript neu starten
+
+**"connection unexpectedly closed (0 bytes received)"** – mögliche Ursachen:
+- **`ssh -n` in der rsync -e Option:** `-n` leitet stdin um, das bricht das rsync-Protokoll. Das Skript verwendet kein `-n` bei rsync.
+- **Ausgabe in Remote-`.bashrc`:** Falls `[[ $- != *i* ]] && return` fehlt, kann Ausgabe das Protokoll stören.
+- Manueller Test: `rsync -avz -e "ssh -o StrictHostKeyChecking=no" datei.mkv user@khanhiwara:/srv/data/Videos/...` (ohne `-n`!)
+
 ## Configuration
 
 Edit paths in `src/auto_process.sh` and `src/retry_failed.sh`:
@@ -99,6 +109,8 @@ Edit paths in `src/auto_process.sh` and `src/retry_failed.sh`:
 
 Für `auto_process_rsync.sh`: Hosts und Pfade im Skript-Kopf; alternativ per Umgebungsvariable:
 - `SOURCE_SSH_HOST`, `TARGET_SSH_HOST` – Hostname, FQDN oder IP
+- `SOURCE_MOUNT_DIR`, `TARGET_MOUNT_DIR` – Wenn beide existieren und beschreibbar: Log, Blacklist und Locks liegen dort (wie bei auto_process.sh). Alle Worker teilen sich die Dateien. Default: `~/mount/cold-lairs-videos`, `~/mount/khanhiwara-videos`
+- `FAILED_UPLOAD_DIR` – Verzeichnis für bei rsync-Fehler gesicherte Dateien (Default: `~/comskip_failed_uploads`)
 
 ## Requirements
 
