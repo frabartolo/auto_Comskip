@@ -223,8 +223,10 @@ log_message "Ziel-Mount: $TARGET_MOUNT_DIR"
 
 TOTAL_RAM_GB=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 / 1024 ))
 AVAILABLE_RAM_GB=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 / 1024 ))
+SWAP_FREE_GB=$(( $(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0) / 1024 / 1024 ))
+AVAILABLE_TOTAL_GB=$(( AVAILABLE_RAM_GB + SWAP_FREE_GB ))
 
-log_message "RAM: ${AVAILABLE_RAM_GB}GB verfügbar von ${TOTAL_RAM_GB}GB gesamt"
+log_message "RAM: ${AVAILABLE_RAM_GB}GB verfügbar von ${TOTAL_RAM_GB}GB gesamt (+ ${SWAP_FREE_GB}GB Swap frei = ${AVAILABLE_TOTAL_GB}GB nutzbar)"
 
 VIDEO_FILES=$(find "$SOURCE_MOUNT_DIR" -type f \
     \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.mpeg" -o -iname "*.mpg" \
@@ -299,12 +301,14 @@ while IFS= read -r FILE; do
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME.$EXTENSION"
 
-    # RAM-Check
+    # RAM-Check (RAM + Swap)
     FILE_SIZE_MB=$(du -m "$FILE" | cut -f1)
     AVAILABLE_RAM_MB=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 ))
+    SWAP_FREE_MB=$(( $(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0) / 1024 ))
+    AVAILABLE_TOTAL_MB=$(( AVAILABLE_RAM_MB + SWAP_FREE_MB ))
 
-    if [ "$FILE_SIZE_MB" -gt "$((AVAILABLE_RAM_MB - 500))" ]; then
-        log_message "  ⚠ Datei zu groß: ${FILE_SIZE_MB}MB (verfügbar: ${AVAILABLE_RAM_MB}MB)"
+    if [ "$FILE_SIZE_MB" -gt "$((AVAILABLE_TOTAL_MB - 500))" ]; then
+        log_message "  ⚠ Datei zu groß: ${FILE_SIZE_MB}MB (verfügbar: ${AVAILABLE_TOTAL_MB}MB RAM+Swap)"
         log_message "  ✗ Überspringe"
         release_file "$LOCK_KEY"
         ((FAILED++)) || true
