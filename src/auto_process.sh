@@ -132,12 +132,20 @@ release_file() {
 
 cleanup_locks() {
     [ -d "$LOCK_DIR" ] || return 0
-    log_message "Räume Locks auf..."
-    find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | while IFS= read -r lock; do
+    echo "Räume Locks auf..."
+    # Timeout 15s – bei hängendem Netzwerk-Mount blockiert find/rm sonst ewig
+    ( find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | while IFS= read -r lock; do
         if [ -f "$lock/info" ] && grep -q "^${WORKER_ID}:" "$lock/info" 2>/dev/null; then
             rm -rf "$lock" 2>/dev/null || true
         fi
+    done ) &
+    CLEANUP_PID=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        kill -0 $CLEANUP_PID 2>/dev/null || break
+        sleep 1
     done
+    kill $CLEANUP_PID 2>/dev/null || true
+    wait $CLEANUP_PID 2>/dev/null || true
 }
 trap cleanup_locks EXIT INT TERM
 
