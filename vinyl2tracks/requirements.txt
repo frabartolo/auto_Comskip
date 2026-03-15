@@ -1,5 +1,0 @@
-# Optional: nur für Spleeter-Stem-Separation
-# spleeter>=2.4.0
-# tensorflow (wird von spleeter gezogen)
-
-# Keine Pflicht-Abhängigkeiten für Split/OCR/Rename (ffmpeg + Python-Standardbibliothek)
