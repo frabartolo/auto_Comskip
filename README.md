@@ -120,3 +120,7 @@ Für `auto_process_rsync.sh`: Hosts und Pfade im Skript-Kopf; alternativ per Umg
 - `sshpass` - Für SSH-Authentifizierung (beide Scripts)
 - `rsync` - Für auto_process_rsync.sh (ersetzt sshfs)
 - `sshfs` - Nur für auto_process.sh (Legacy-Modus)
+
+## Schallplatten-Rips (vinyl2tracks)
+
+Im Ordner **vinyl2tracks/** liegt eine eigene Toolchain zum Aufteilen langer Audio-Aufnahmen (z.B. eine MP3 pro Plattenseite) in Einzeltracks per Stille-Erkennung, optional mit OCR von Cover/Label (z.B. DeepSeek auf OpenClaw) für Titel/Metadaten und optional Spleeter. Siehe [vinyl2tracks/README.md](vinyl2tracks/README.md).
