@@ -390,11 +390,11 @@ while IFS= read -r FILE; do
         EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
         EDL_ARG="${EDL_FILE:-none}"
     fi
-    
-    # Cleanup temp repaired file
-    [ -n "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED" 2>/dev/null
 
-    # FFmpeg mit Lock-Refresh
+    # FFmpeg mit Lock-Refresh (WORKING_FILE = Original oder reparierte /tmp/...-Datei)
+    if [ -n "$TEMP_REPAIRED" ] && [ "$WORKING_FILE" = "$TEMP_REPAIRED" ]; then
+        log_message "  -> Schritt 2 nutzt reparierte Zwischendatei (nicht Original)"
+    fi
     log_message "Schritt 2: FFmpeg..."
     refresh_lock "$LOCK_KEY"
 
@@ -406,14 +406,15 @@ while IFS= read -r FILE; do
     ) &
     REFRESH_PID=$!
 
-    # Python-Verarbeitung (läuft parallel zum Lock-Refresh)
-    python3 "$PYTHON_SCRIPT" "$FILE" "$EDL_ARG" "$TARGET_FILE" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG" < /dev/null &
+    # Python-Verarbeitung (läuft parallel zum Lock-Refresh) – immer WORKING_FILE (Original oder Reparatur)
+    python3 "$PYTHON_SCRIPT" "$WORKING_FILE" "$EDL_ARG" "$TARGET_FILE" "$SRT_ARG" "$METADATA_ARG" "$MAIN_LOG" < /dev/null &
     PYTHON_PID=$!
     
     # Warte auf Python-Ende (blockiert hier bis Python fertig ist)
     wait $PYTHON_PID
     PYTHON_EXIT=$?
-    
+    [ -n "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED" 2>/dev/null
+
     # Stoppe Lock-Refresh sofort nach Python-Ende
     kill $REFRESH_PID 2>/dev/null
     wait $REFRESH_PID 2>/dev/null || true

@@ -429,9 +429,7 @@ while IFS= read -r REMOTE_FILE; do
     EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
     EDL_ARG="${EDL_FILE:-none}"
 
-    [ -n "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
-
-    # 4. cut_with_edl.py
+    # 4. cut_with_edl.py (WORKING_FILE = Original oder reparierte Datei – nicht vorher löschen!)
     log_message "Schritt 4: FFmpeg-Recodierung..."
 
     SRT_ARG="none"
@@ -447,6 +445,7 @@ while IFS= read -r REMOTE_FILE; do
     else
         PYTHON_EXIT=$?
     fi
+    [ -n "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
 
     if [ $PYTHON_EXIT -eq 0 ] && [ -f "$LOCAL_OUTPUT" ]; then
         # 5. rsync zum Ziel-Server (NUR HIER: Globaler Netzwerk-Lock)
