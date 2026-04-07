@@ -348,47 +348,62 @@ while IFS= read -r FILE; do
     EDL_ARG=""
     
     if ! ffprobe -v error "$FILE" >/dev/null 2>&1; then
-        log_message "  ⚠ Datei hat Fehler, versuche Reparatur vor Comskip..."
+        log_message "  ⚠ ffprobe meldet Fehler, Reparatur vor Comskip..."
         TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
         if ffmpeg -nostdin -v error -err_detect ignore_err -i "$FILE" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1; then
             if [ -f "$TEMP_REPAIRED" ] && [ -s "$TEMP_REPAIRED" ]; then
-                log_message "  ✓ Datei repariert, nutze reparierte Version für Comskip"
+                log_message "  ✓ Reparatur OK, Comskip/FFmpeg nutzen diese Datei (nicht Original)"
                 WORKING_FILE="$TEMP_REPAIRED"
             else
                 log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
                 rm -f "$TEMP_REPAIRED" 2>/dev/null
+                TEMP_REPAIRED=""
                 EDL_ARG="none"
                 WORKING_FILE="$FILE"
             fi
         else
             log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
+            rm -f "$TEMP_REPAIRED" 2>/dev/null
+            TEMP_REPAIRED=""
             EDL_ARG="none"
         fi
+    else
+        log_message "  ✓ ffprobe OK (keine Vorab-Reparatur nötig)"
     fi
 
+    COMSKIP_EXIT=0
     if [ -z "$EDL_ARG" ]; then
         if [ -f "$COMSKIP_INI" ]; then
-            comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || {
-                COMSKIP_EXIT=$?
-                if [ $COMSKIP_EXIT -eq 139 ] || [ $COMSKIP_EXIT -eq 134 ]; then
-                    log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
-                else
-                    log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
-                fi
-            }
+            comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
         else
-            comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || {
-                COMSKIP_EXIT=$?
-                if [ $COMSKIP_EXIT -eq 139 ] || [ $COMSKIP_EXIT -eq 134 ]; then
-                    log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
-                else
-                    log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
-                fi
-            }
+            comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
+        fi
+        if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
+            log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
+        elif [ "$COMSKIP_EXIT" -ne 0 ]; then
+            log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
         fi
 
         EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
         EDL_ARG="${EDL_FILE:-none}"
+    fi
+
+    # ffprobe kann OK sein, Comskip aber trotzdem abstürzen – dann ffmpeg-Remux für Schritt 2
+    if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
+        if [ "$WORKING_FILE" = "$FILE" ] && [ -z "$TEMP_REPAIRED" ]; then
+            log_message "  ⚠ Comskip stürzte auf Original ab – Reparatur für FFmpeg (Schritt 2)..."
+            TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
+            if ffmpeg -nostdin -v error -err_detect ignore_err -i "$FILE" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
+                WORKING_FILE="$TEMP_REPAIRED"
+                log_message "  ✓ Reparatur für Schritt 2 bereitgestellt (Original bleibt unverändert)"
+            else
+                log_message "  ✗ Reparatur nach Comskip fehlgeschlagen, FFmpeg nutzt Original"
+                rm -f "$TEMP_REPAIRED" 2>/dev/null
+                TEMP_REPAIRED=""
+            fi
+        elif [ -n "$TEMP_REPAIRED" ] && [ "$WORKING_FILE" = "$TEMP_REPAIRED" ]; then
+            log_message "  ⚠ Comskip stürzte auch auf der vorab reparierten Datei ab – Schritt 2 nutzt sie trotzdem"
+        fi
     fi
 
     # FFmpeg mit Lock-Refresh (WORKING_FILE = Original oder reparierte /tmp/...-Datei)
