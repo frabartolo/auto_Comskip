@@ -420,7 +420,7 @@ while IFS= read -r REMOTE_FILE; do
         log_message "  ✓ ffprobe OK (keine Vorab-Reparatur)"
     fi
 
-    # 3. Comskip
+    # 3. Comskip (bei Fehler: Remux von Original, zweiter Lauf; erneuter Fehler → dirty/Blacklist)
     log_message "Schritt 3: Comskip..."
     rm -f "$TEMP_DIR"/*.edl
     COMSKIP_EXIT=0
@@ -429,27 +429,33 @@ while IFS= read -r REMOTE_FILE; do
     else
         comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
     fi
-    if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
-        log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT)"
-    elif [ "$COMSKIP_EXIT" -ne 0 ]; then
-        log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
-    fi
 
-    # ffprobe OK, Comskip aber Segfault → Remux für Schritt 4
-    if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
-        if [ "$WORKING_FILE" = "$LOCAL_INPUT" ] && [ -z "$TEMP_REPAIRED" ]; then
-            log_message "  ⚠ Comskip auf Original abgestürzt – Reparatur für FFmpeg..."
-            TEMP_REPAIRED="$TEMP_DIR/repaired_after_comskip_$$.ts"
-            if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
-                WORKING_FILE="$TEMP_REPAIRED"
-                log_message "  ✓ Reparatur für Schritt 4 bereitgestellt"
+    if [ "$COMSKIP_EXIT" -ne 0 ]; then
+        log_message "  ⚠ Comskip fehlgeschlagen (Exit $COMSKIP_EXIT), Reparatur und zweiter Versuch..."
+        rm -f "$TEMP_DIR"/*.edl
+        [ -n "$TEMP_REPAIRED" ] && [ -f "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
+        TEMP_REPAIRED="$TEMP_DIR/comskip_retry_$$.ts"
+        if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
+            WORKING_FILE="$TEMP_REPAIRED"
+            log_message "  ✓ Reparatur OK, zweiter Comskip-Lauf..."
+            COMSKIP_EXIT=0
+            if [ -f "$COMSKIP_INI" ]; then
+                comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
             else
-                log_message "  ✗ Reparatur nach Comskip fehlgeschlagen, nutze Original"
-                rm -f "$TEMP_REPAIRED" 2>/dev/null
-                TEMP_REPAIRED=""
+                comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
             fi
-        elif [ -n "$TEMP_REPAIRED" ] && [ "$WORKING_FILE" = "$TEMP_REPAIRED" ]; then
-            log_message "  ⚠ Comskip auch auf reparierter Datei abgestürzt – Schritt 4 nutzt sie trotzdem"
+        else
+            log_message "  ✗ Reparatur für Comskip-Retry fehlgeschlagen"
+            COMSKIP_EXIT=1
+        fi
+
+        if [ "$COMSKIP_EXIT" -ne 0 ]; then
+            log_message "  ✗ Comskip weiterhin fehlgeschlagen – Datei als dirty markiert"
+            add_to_blacklist_remote "$FILENAME"
+            release_file "$LOCK_KEY"
+            ((FAILED++)) || true
+            rm -f "$LOCAL_INPUT" "$TEMP_REPAIRED" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml 2>/dev/null || true
+            continue
         fi
     fi
 

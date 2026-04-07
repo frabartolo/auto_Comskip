@@ -48,6 +48,13 @@ is_blacklisted() {
     grep -qxF "$filename" "$BLACKLIST_FILE" 2>/dev/null
 }
 
+add_to_blacklist() {
+    local filename="$1"
+    mkdir -p "$(dirname "$BLACKLIST_FILE")" 2>/dev/null || true
+    grep -qxF "$filename" "$BLACKLIST_FILE" 2>/dev/null || printf '%s\n' "$filename" >> "$BLACKLIST_FILE"
+    log_message "  ✗ Datei als dirty (Comskip) markiert: $filename"
+}
+
 # --- LOCK-FUNKTIONEN ---
 generate_lock_key() {
     local input="$1"
@@ -343,10 +350,11 @@ while IFS= read -r FILE; do
     refresh_lock "$LOCK_KEY"
 
     # Pre-Check: Prüfe ob Datei von ffprobe lesbar ist
+    SKIP_COMSKIP=false
     WORKING_FILE="$FILE"
     TEMP_REPAIRED=""
     EDL_ARG=""
-    
+
     if ! ffprobe -v error "$FILE" >/dev/null 2>&1; then
         log_message "  ⚠ ffprobe meldet Fehler, Reparatur vor Comskip..."
         TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
@@ -359,6 +367,7 @@ while IFS= read -r FILE; do
                 rm -f "$TEMP_REPAIRED" 2>/dev/null
                 TEMP_REPAIRED=""
                 EDL_ARG="none"
+                SKIP_COMSKIP=true
                 WORKING_FILE="$FILE"
             fi
         else
@@ -366,44 +375,57 @@ while IFS= read -r FILE; do
             rm -f "$TEMP_REPAIRED" 2>/dev/null
             TEMP_REPAIRED=""
             EDL_ARG="none"
+            SKIP_COMSKIP=true
         fi
     else
         log_message "  ✓ ffprobe OK (keine Vorab-Reparatur nötig)"
     fi
 
     COMSKIP_EXIT=0
-    if [ -z "$EDL_ARG" ]; then
+    if [ "$SKIP_COMSKIP" = false ]; then
+        rm -rf "$TEMP_DIR"/*
+        refresh_lock "$LOCK_KEY"
+
         if [ -f "$COMSKIP_INI" ]; then
             comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
         else
             comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
         fi
-        if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
-            log_message "  ⚠ Comskip Segfault (Exit $COMSKIP_EXIT), überspringe Werbeerkennung"
-        elif [ "$COMSKIP_EXIT" -ne 0 ]; then
-            log_message "  ⚠ Comskip Exit $COMSKIP_EXIT"
+
+        if [ "$COMSKIP_EXIT" -ne 0 ]; then
+            log_message "  ⚠ Comskip fehlgeschlagen (Exit $COMSKIP_EXIT), Reparatur und zweiter Versuch..."
+            rm -rf "$TEMP_DIR"/*
+            [ -n "$TEMP_REPAIRED" ] && [ -f "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
+            TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
+            if ffmpeg -nostdin -v error -err_detect ignore_err -i "$FILE" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
+                WORKING_FILE="$TEMP_REPAIRED"
+                log_message "  ✓ Reparatur OK, zweiter Comskip-Lauf..."
+                refresh_lock "$LOCK_KEY"
+                COMSKIP_EXIT=0
+                if [ -f "$COMSKIP_INI" ]; then
+                    comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
+                else
+                    comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
+                fi
+            else
+                log_message "  ✗ Reparatur für Comskip-Retry fehlgeschlagen"
+                COMSKIP_EXIT=1
+            fi
+
+            if [ "$COMSKIP_EXIT" -ne 0 ]; then
+                add_to_blacklist "$FILENAME.$EXTENSION"
+                rm -f "$TEMP_REPAIRED" 2>/dev/null
+                TEMP_REPAIRED=""
+                WORKING_FILE="$FILE"
+                release_file "$LOCK_KEY"
+                ((FAILED++)) || true
+                rm -rf "$TEMP_DIR"/*
+                continue
+            fi
         fi
 
         EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
         EDL_ARG="${EDL_FILE:-none}"
-    fi
-
-    # ffprobe kann OK sein, Comskip aber trotzdem abstürzen – dann ffmpeg-Remux für Schritt 2
-    if [ "$COMSKIP_EXIT" -eq 139 ] || [ "$COMSKIP_EXIT" -eq 134 ]; then
-        if [ "$WORKING_FILE" = "$FILE" ] && [ -z "$TEMP_REPAIRED" ]; then
-            log_message "  ⚠ Comskip stürzte auf Original ab – Reparatur für FFmpeg (Schritt 2)..."
-            TEMP_REPAIRED="/tmp/comskip_preprocess_$$.ts"
-            if ffmpeg -nostdin -v error -err_detect ignore_err -i "$FILE" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
-                WORKING_FILE="$TEMP_REPAIRED"
-                log_message "  ✓ Reparatur für Schritt 2 bereitgestellt (Original bleibt unverändert)"
-            else
-                log_message "  ✗ Reparatur nach Comskip fehlgeschlagen, FFmpeg nutzt Original"
-                rm -f "$TEMP_REPAIRED" 2>/dev/null
-                TEMP_REPAIRED=""
-            fi
-        elif [ -n "$TEMP_REPAIRED" ] && [ "$WORKING_FILE" = "$TEMP_REPAIRED" ]; then
-            log_message "  ⚠ Comskip stürzte auch auf der vorab reparierten Datei ab – Schritt 2 nutzt sie trotzdem"
-        fi
     fi
 
     # FFmpeg mit Lock-Refresh (WORKING_FILE = Original oder reparierte /tmp/...-Datei)
