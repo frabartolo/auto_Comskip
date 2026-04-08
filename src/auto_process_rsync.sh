@@ -75,7 +75,7 @@ rsync_from() {
     local host="$1"
     local remote_path="$2"
     local local_path="$3"
-    rsync -avz --progress -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+    rsync -avz "${RSYNC_RSH[@]}" \
         "$SSH_USER@$host:$remote_path" "$local_path" 2>/dev/null || return 1
 }
 
@@ -83,7 +83,7 @@ rsync_to() {
     local local_path="$1"
     local host="$2"
     local remote_path="$3"
-    rsync -avz --progress -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+    rsync -avz "${RSYNC_RSH[@]}" \
         "$local_path" "$SSH_USER@$host:$remote_path" 2>/dev/null || return 1
 }
 
@@ -238,9 +238,9 @@ release_file() {
 # --- DATEILISTE ---
 get_file_list() {
     if [ "$USE_MOUNTS" -eq 1 ]; then
-        find "$SOURCE_MOUNT_DIR" -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null
+        find "$SOURCE_MOUNT_DIR" -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null
     else
-        ssh_cmd "$SOURCE_SSH_HOST" "find $SOURCE_REMOTE_PATH -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null"
+        ssh_cmd "$SOURCE_SSH_HOST" "find $SOURCE_REMOTE_PATH -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null"
     fi
 }
 
@@ -254,6 +254,9 @@ SSH_USER=$(grep "username" "$CRED_FILE" | cut -d'=' -f2 | xargs)
 SSH_PASS=$(grep "password" "$CRED_FILE" | cut -d'=' -f2 | xargs)
 
 [ -z "$SSH_USER" ] || [ -z "$SSH_PASS" ] && { echo "FEHLER: Username/Passwort fehlt!"; exit 1; }
+
+# Gleiche rsync/SSH-Transport-Optionen für Download und Upload (einheitliche Mimik)
+RSYNC_RSH=( -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" )
 
 # --- VORBEREITUNG ---
 mkdir -p "$WORK_DIR" "$TEMP_DIR"
@@ -382,7 +385,7 @@ while IFS= read -r REMOTE_FILE; do
         continue
     fi
     log_message "Schritt 1: Lade Datei (+ Sidecars) vom Quell-Server..."
-    if ! rsync -avz -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+    if ! rsync -avz "${RSYNC_RSH[@]}" \
         "$SSH_USER@$RSYNC_SOURCE_PATH" "$LOCAL_INPUT" 2>/dev/null; then
         log_message "  ✗ rsync von Quell-Server fehlgeschlagen"
         release_file "$LOCK_KEY"
@@ -393,76 +396,106 @@ while IFS= read -r REMOTE_FILE; do
     fi
     REMOTE_BASE="$SOURCE_REMOTE_PATH/${REL_PATH%.*}"
     for ext in srt txt xml; do
-        rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+        rsync -avz "${RSYNC_RSH[@]}" \
             "$SSH_USER@$SOURCE_SSH_HOST:${REMOTE_BASE}.${ext}" "$TEMP_DIR/" 2>/dev/null || true
     done
     release_global_lock
 
-    # 2. ffprobe / Repair
+    # RAM-Check (wie auto_process.sh: Datei vs. RAM+Swap−500MB)
+    FILE_SIZE_MB=$(du -m "$LOCAL_INPUT" | cut -f1)
+    AVAILABLE_RAM_MB=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 ))
+    SWAP_FREE_MB=$(( $(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0) / 1024 ))
+    AVAILABLE_TOTAL_MB=$(( AVAILABLE_RAM_MB + SWAP_FREE_MB ))
+    if [ "$FILE_SIZE_MB" -gt "$((AVAILABLE_TOTAL_MB - 500))" ]; then
+        log_message "  ⚠ Datei zu groß: ${FILE_SIZE_MB}MB (verfügbar: ${AVAILABLE_TOTAL_MB}MB RAM+Swap)"
+        log_message "  ✗ Überspringe"
+        release_file "$LOCK_KEY"
+        ((FAILED++)) || true
+        rm -f "$LOCAL_INPUT"
+        continue
+    fi
+
+    # 2. ffprobe / Repair (wie auto_process.sh: Reparatur-Fehler → Comskip überspringen, FFmpeg läuft trotzdem)
     log_message "Schritt 2: Prüfe Datei..."
     WORKING_FILE="$LOCAL_INPUT"
     TEMP_REPAIRED=""
+    EDL_ARG=""
+    SKIP_COMSKIP=false
+
     if ! ffprobe -v error "$LOCAL_INPUT" >/dev/null 2>&1; then
         log_message "  ⚠ ffprobe meldet Fehler, Reparatur..."
         TEMP_REPAIRED="$TEMP_DIR/repaired_$$.ts"
-        if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
-            WORKING_FILE="$TEMP_REPAIRED"
-            log_message "  ✓ Reparatur OK, Comskip/FFmpeg nutzen diese Datei"
+        if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1; then
+            if [ -f "$TEMP_REPAIRED" ] && [ -s "$TEMP_REPAIRED" ]; then
+                WORKING_FILE="$TEMP_REPAIRED"
+                log_message "  ✓ Reparatur OK, Comskip/FFmpeg nutzen diese Datei"
+            else
+                log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
+                rm -f "$TEMP_REPAIRED" 2>/dev/null
+                TEMP_REPAIRED=""
+                EDL_ARG="none"
+                SKIP_COMSKIP=true
+                WORKING_FILE="$LOCAL_INPUT"
+            fi
         else
-            log_message "  ✗ Reparatur fehlgeschlagen"
-            add_to_blacklist_remote "$FILENAME"
-            release_file "$LOCK_KEY"
-            ((FAILED++)) || true
-            rm -f "$LOCAL_INPUT" "$TEMP_REPAIRED"
-            continue
+            log_message "  ✗ Reparatur fehlgeschlagen, überspringe Comskip"
+            rm -f "$TEMP_REPAIRED" 2>/dev/null
+            TEMP_REPAIRED=""
+            EDL_ARG="none"
+            SKIP_COMSKIP=true
         fi
     else
         log_message "  ✓ ffprobe OK (keine Vorab-Reparatur)"
     fi
 
-    # 3. Comskip (bei Fehler: Remux von Original, zweiter Lauf; erneuter Fehler → dirty/Blacklist)
-    log_message "Schritt 3: Comskip..."
-    rm -f "$TEMP_DIR"/*.edl
+    # 3. Comskip (bei Fehler: Remux von LOCAL_INPUT, zweiter Lauf; erneuter Fehler → dirty/Blacklist)
     COMSKIP_EXIT=0
-    if [ -f "$COMSKIP_INI" ]; then
-        comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
-    else
-        comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
-    fi
-
-    if [ "$COMSKIP_EXIT" -ne 0 ]; then
-        log_message "  ⚠ Comskip fehlgeschlagen (Exit $COMSKIP_EXIT), Reparatur und zweiter Versuch..."
+    if [ "$SKIP_COMSKIP" = false ]; then
+        log_message "Schritt 3: Comskip..."
         rm -f "$TEMP_DIR"/*.edl
-        [ -n "$TEMP_REPAIRED" ] && [ -f "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
-        TEMP_REPAIRED="$TEMP_DIR/comskip_retry_$$.ts"
-        if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
-            WORKING_FILE="$TEMP_REPAIRED"
-            log_message "  ✓ Reparatur OK, zweiter Comskip-Lauf..."
-            COMSKIP_EXIT=0
-            if [ -f "$COMSKIP_INI" ]; then
-                comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
-            else
-                comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
-            fi
+        if [ -f "$COMSKIP_INI" ]; then
+            comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
         else
-            log_message "  ✗ Reparatur für Comskip-Retry fehlgeschlagen"
-            COMSKIP_EXIT=1
+            comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
         fi
 
         if [ "$COMSKIP_EXIT" -ne 0 ]; then
-            log_message "  ✗ Comskip weiterhin fehlgeschlagen – Datei als dirty markiert"
-            add_to_blacklist_remote "$FILENAME"
-            release_file "$LOCK_KEY"
-            ((FAILED++)) || true
-            rm -f "$LOCAL_INPUT" "$TEMP_REPAIRED" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml 2>/dev/null || true
-            continue
+            log_message "  ⚠ Comskip fehlgeschlagen (Exit $COMSKIP_EXIT), Reparatur und zweiter Versuch..."
+            rm -f "$TEMP_DIR"/*.edl
+            [ -n "$TEMP_REPAIRED" ] && [ -f "$TEMP_REPAIRED" ] && rm -f "$TEMP_REPAIRED"
+            TEMP_REPAIRED="$TEMP_DIR/comskip_retry_$$.ts"
+            if ffmpeg -nostdin -v error -err_detect ignore_err -i "$LOCAL_INPUT" -c copy -y "$TEMP_REPAIRED" >/dev/null 2>&1 && [ -s "$TEMP_REPAIRED" ]; then
+                WORKING_FILE="$TEMP_REPAIRED"
+                log_message "  ✓ Reparatur OK, zweiter Comskip-Lauf..."
+                COMSKIP_EXIT=0
+                if [ -f "$COMSKIP_INI" ]; then
+                    comskip --ini="$COMSKIP_INI" --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
+                else
+                    comskip --output="$TEMP_DIR" --quiet -- "$WORKING_FILE" < /dev/null >> "$MAIN_LOG" 2>&1 || COMSKIP_EXIT=$?
+                fi
+            else
+                log_message "  ✗ Reparatur für Comskip-Retry fehlgeschlagen"
+                COMSKIP_EXIT=1
+            fi
+
+            if [ "$COMSKIP_EXIT" -ne 0 ]; then
+                log_message "  ✗ Comskip weiterhin fehlgeschlagen – Datei als dirty markiert"
+                add_to_blacklist_remote "$FILENAME"
+                release_file "$LOCK_KEY"
+                ((FAILED++)) || true
+                rm -f "$LOCAL_INPUT" "$TEMP_REPAIRED" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml 2>/dev/null || true
+                continue
+            fi
         fi
+
+        EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
+        EDL_ARG="${EDL_FILE:-none}"
     fi
 
-    EDL_FILE=$(find "$TEMP_DIR" -name "*.edl" 2>/dev/null | head -n 1)
-    EDL_ARG="${EDL_FILE:-none}"
-
-    # 4. cut_with_edl.py (WORKING_FILE = Original oder reparierte Datei – nicht vorher löschen!)
+    # 4. cut_with_edl.py (WORKING_FILE = Download oder reparierte Zwischendatei – nicht vorher löschen!)
+    if [ -n "$TEMP_REPAIRED" ] && [ "$WORKING_FILE" = "$TEMP_REPAIRED" ]; then
+        log_message "  -> Schritt 4 nutzt reparierte Zwischendatei (nicht Original-Download)"
+    fi
     log_message "Schritt 4: FFmpeg-Recodierung..."
 
     SRT_ARG="none"
@@ -486,23 +519,23 @@ while IFS= read -r REMOTE_FILE; do
             log_message "  ✗ Kein Global-Lock zum Kopieren - Ergebnis bleibt lokal"
             ((FAILED++)) || true
         else
-            log_message "Schritt 5: Kopiere auf Ziel-Server..."
+            log_message "Schritt 5: Kopiere auf Ziel-Server (gleiche rsync/SSH-Optionen wie Schritt 1)..."
             ssh_cmd "$TARGET_SSH_HOST" "mkdir -p $TARGET_REL_DIR" 2>/dev/null || true
-            RSYNC_ERR=$(rsync -avz -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
-                "$LOCAL_OUTPUT" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$TARGET_FILENAME" 2>&1)
-            if [ $? -eq 0 ]; then
-                [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+            RSYNC_EC=0
+            RSYNC_ERR=$(rsync -avz "${RSYNC_RSH[@]}" \
+                "$LOCAL_OUTPUT" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$TARGET_FILENAME" 2>&1) || RSYNC_EC=$?
+            if [ "$RSYNC_EC" -eq 0 ]; then
+                [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -avz "${RSYNC_RSH[@]}" \
                     "$SRT_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.srt" 2>/dev/null || true
-                [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -az -e "sshpass -p $SSH_PASS ssh -o StrictHostKeyChecking=no" \
+                [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -avz "${RSYNC_RSH[@]}" \
                     "$METADATA_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.${METADATA_ARG##*.}" 2>/dev/null || true
 
                 log_message "  ✓ Erfolgreich verarbeitet"
                 add_to_existing_list "$TARGET_REL_DIR/$TARGET_FILENAME"
                 ((PROCESSED++)) || true
             else
-                log_message "  ✗ rsync zum Ziel FEHLGESCHLAGEN"
+                log_message "  ✗ rsync zum Ziel FEHLGESCHLAGEN (wie bei Download-Fehler: nächste Datei)"
                 log_message "  -> Fehler: $RSYNC_ERR"
-                echo "FEHLER rsync → Ziel: $RSYNC_ERR"
                 mkdir -p "$FAILED_UPLOAD_DIR"
                 SAVE_SUBDIR="$FAILED_UPLOAD_DIR/$REL_DIR"
                 mkdir -p "$SAVE_SUBDIR"
@@ -511,15 +544,18 @@ while IFS= read -r REMOTE_FILE; do
                 release_global_lock
                 release_file "$LOCK_KEY"
                 append_log_to_remote 2>/dev/null || true
-                echo ""
-                echo "ABBRUCH: rsync zum Ziel fehlgeschlagen. Fertige Datei gesichert unter: $SAVE_PATH"
-                echo "Behebe das Problem (Platte voll? Rechte? Pfad?) und starte das Skript erneut."
-                exit 1
+                ((FAILED++)) || true
+                rm -f "$LOCAL_INPUT" "$LOCAL_OUTPUT" "$TEMP_DIR"/*.edl "$TEMP_DIR"/*.srt "$TEMP_DIR"/*.txt "$TEMP_DIR"/*.xml 2>/dev/null || true
+                log_message "  -> Hinweis: Netzwerk/Ziel wieder online – erneut starten oder Datei von $SAVE_PATH nachziehen"
+                continue
             fi
             release_global_lock
         fi
-    elif [ $PYTHON_EXIT -eq 9 ] || [ $PYTHON_EXIT -eq 6 ]; then
-        add_to_blacklist_remote "$FILENAME"
+    elif [ $PYTHON_EXIT -eq 9 ]; then
+        log_message "  ✗ Datei ist auf Blacklist (permanent defekt)"
+        ((FAILED++)) || true
+    elif [ $PYTHON_EXIT -eq 6 ]; then
+        log_message "  ✗ Fehler (Exit: 6) – FFmpeg-Fehler oder OOM"
         ((FAILED++)) || true
     else
         log_message "  ✗ Fehler (Exit: $PYTHON_EXIT)"
