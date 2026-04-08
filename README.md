@@ -74,10 +74,10 @@ When a file fails to process:
 To manually manage the blacklist:
 ```bash
 # View blacklisted files
-cat /srv/data/Videos/corrupted_files.blacklist
+cat /var/opt/shares/Videos/corrupted_files.blacklist
 
 # Remove a file from blacklist
-sed -i '/filename.ts/d' /srv/data/Videos/corrupted_files.blacklist
+sed -i '/filename.ts/d' /var/opt/shares/Videos/corrupted_files.blacklist
 ```
 
 ## Troubleshooting (auto_process_rsync.sh)
@@ -97,7 +97,7 @@ sed -i '/filename.ts/d' /srv/data/Videos/corrupted_files.blacklist
 **"connection unexpectedly closed (0 bytes received)"** – mögliche Ursachen:
 - **`ssh -n` in der rsync -e Option:** `-n` leitet stdin um, das bricht das rsync-Protokoll. Das Skript verwendet kein `-n` bei rsync.
 - **Ausgabe in Remote-`.bashrc`:** Falls `[[ $- != *i* ]] && return` fehlt, kann Ausgabe das Protokoll stören.
-- Manueller Test: `rsync -avz -e "ssh -o StrictHostKeyChecking=no" datei.mkv user@khanhiwara:/srv/data/Videos/...` (ohne `-n`!)
+- Manueller Test: `rsync -avz -e "ssh -o StrictHostKeyChecking=no" datei.mkv user@khanhiwara:/var/opt/shares/Videos/...` (ohne `-n`!)
 
 ## Configuration
 

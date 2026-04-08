@@ -32,7 +32,7 @@ Run a single-file debug pipeline (dry run) to inspect a single file end-to-end:
    python3 src/cut_with_edl.py /path/to/input.mp4 /tmp/comskip_work/input.edl /tmp/output.mkv /path/to/input.srt /path/to/input.txt /tmp/video.log
 
 3) Check logs:
-   - Global run summary: `/srv/data/Videos/process_summary.log` (used by `auto_process.sh`)
+   - Global run summary: `/var/opt/shares/Videos/process_summary.log` (used by `auto_process.sh`)
    - Per-video logs are created next to `TARGET_DIR` (see `auto_process.sh` variable `VIDEO_LOG`).
 
 **Corrupted file handling:**

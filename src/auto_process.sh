@@ -14,7 +14,7 @@ SOURCE_REMOTE_PATH="/var/opt/shares/Videos"
 # === ZIEL-SERVER (Manuell gemountet) ===
 TARGET_MOUNT_DIR="$HOME/mount/khanhiwara-videos"
 TARGET_SSH_HOST="khanhiwara"
-TARGET_REMOTE_PATH="/srv/data/Videos"
+TARGET_REMOTE_PATH="/var/opt/shares/Videos"
 
 # Arbeitspfade
 TARGET_BASE="$TARGET_MOUNT_DIR"

@@ -17,7 +17,7 @@ TARGET_MOUNT="${TARGET_MOUNT:-$HOME/mount/khanhiwara-videos}"
 SOURCE_SSH_HOST="${SOURCE_SSH_HOST:-cold-lairs}"
 TARGET_SSH_HOST="${TARGET_SSH_HOST:-khanhiwara}"
 SOURCE_REMOTE_PATH="${SOURCE_REMOTE_PATH:-/var/opt/shares/Videos}"
-TARGET_REMOTE_PATH="${TARGET_REMOTE_PATH:-/srv/data/Videos}"
+TARGET_REMOTE_PATH="${TARGET_REMOTE_PATH:-/var/opt/shares/Videos}"
 CRED_FILE="${CRED_FILE:-$HOME/.smbcredentials}"
 
 USE_RSYNC_MODE=0
