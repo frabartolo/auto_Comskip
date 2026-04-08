@@ -16,6 +16,128 @@ from typing import Dict, List, Optional, Tuple
 # This will be set dynamically based on the log file location if provided
 BLACKLIST_FILE = None
 
+# --- GPU / Hardware-Video-Encoding (COMSKIP_VENC env) ---
+_ENCODERS_OUT: Optional[str] = None
+
+
+def _ffmpeg_encoders_output() -> str:
+    global _ENCODERS_OUT
+    if _ENCODERS_OUT is None:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _ENCODERS_OUT = r.stdout or ""
+    return _ENCODERS_OUT
+
+
+def _encoder_available(name: str) -> bool:
+    return name in _ffmpeg_encoders_output()
+
+
+def _nvidia_driver_ok() -> bool:
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return r.returncode == 0 and b"GPU" in r.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _vaapi_device_path() -> Optional[str]:
+    dev = os.environ.get("COMSKIP_VAAPI_DEVICE", "/dev/dri/renderD128")
+    return dev if os.path.exists(dev) else None
+
+
+def _detect_auto_profile() -> str:
+    if _encoder_available("h264_nvenc") and _nvidia_driver_ok():
+        return "nvenc"
+    if _vaapi_device_path() and _encoder_available("h264_vaapi"):
+        return "vaapi"
+    if _encoder_available("h264_qsv"):
+        return "qsv"
+    return "cpu"
+
+
+def _resolve_venc_from_env(raw: str) -> str:
+    r = (raw or "auto").strip().lower()
+    if r in ("", "auto"):
+        return _detect_auto_profile()
+    if r in ("cpu", "libx264", "x264"):
+        return "cpu"
+    if r in ("nvenc", "h264_nvenc"):
+        return "nvenc" if _encoder_available("h264_nvenc") else "cpu"
+    if r in ("vaapi", "h264_vaapi"):
+        if _vaapi_device_path() and _encoder_available("h264_vaapi"):
+            return "vaapi"
+        return "cpu"
+    if r in ("qsv", "h264_qsv"):
+        return "qsv" if _encoder_available("h264_qsv") else "cpu"
+    return _detect_auto_profile()
+
+
+def resolve_video_profile(for_filter_complex: bool, log_file: Optional[str]) -> str:
+    """Wählt libx264 vs. NVENC/VAAPI/QSV. VAAPI + filter_complex -> CPU."""
+    profile = _resolve_venc_from_env(os.environ.get("COMSKIP_VENC", "auto"))
+    if for_filter_complex and profile == "vaapi":
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(
+                    "[ENCODE] VAAPI mit filter_complex nicht unterstützt — nutze libx264\n"
+                )
+        profile = "cpu"
+    return profile
+
+
+def build_video_encode_args(profile: str) -> List[str]:
+    """FFmpeg-Argumente für Video (inkl. ggf. -vaapi_device/-vf vor -c:v)."""
+    if profile == "cpu":
+        return ["-c:v", "libx264", "-crf", "21", "-preset", "faster"]
+    if profile == "nvenc":
+        cq = os.environ.get("COMSKIP_NVENC_CQ", "23")
+        return ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", cq, "-b:v", "0"]
+    if profile == "vaapi":
+        dev = os.environ.get("COMSKIP_VAAPI_DEVICE", "/dev/dri/renderD128")
+        qp = os.environ.get("COMSKIP_VAAPI_QP", "23")
+        return [
+            "-vaapi_device",
+            dev,
+            "-vf",
+            "format=nv12,hwupload",
+            "-c:v",
+            "h264_vaapi",
+            "-qp",
+            qp,
+        ]
+    if profile == "qsv":
+        q = os.environ.get("COMSKIP_QSV_QUALITY", "23")
+        return ["-c:v", "h264_qsv", "-global_quality", q, "-preset", "medium"]
+    return build_video_encode_args("cpu")
+
+
+def log_encode_profile(profile: str, log_file: Optional[str]) -> None:
+    if not log_file:
+        return
+    with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+        f.write(f"[ENCODE] Video-Profil: {profile}\n")
+
+
+def print_venc_probe() -> None:
+    """Diagnose für Kommandozeile (--probe-venc)."""
+    auto = _detect_auto_profile()
+    print(f"COMSKIP_VENC (auto-Erkennung): {auto}")
+    print(f"  h264_nvenc in ffmpeg: {_encoder_available('h264_nvenc')}")
+    print(f"  nvidia-smi -L OK:     {_nvidia_driver_ok()}")
+    print(f"  VAAPI-Gerät:          {_vaapi_device_path() or '(keins)'}")
+    print(f"  h264_vaapi in ffmpeg: {_encoder_available('h264_vaapi')}")
+    print(f"  h264_qsv in ffmpeg:   {_encoder_available('h264_qsv')}")
+
 def get_blacklist_path(log_file: Optional[str] = None) -> str:
     """Determine blacklist file path from log file location or use default."""
     if log_file:
@@ -337,22 +459,10 @@ def convert_without_cuts(
         meta = process_metadata(txt_file)
         cmd.extend(build_metadata_flags(meta))
 
-    cmd.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-crf",
-            "21",
-            "-preset",
-            "faster",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-y",
-            output_file,
-        ]
-    )
+    profile = resolve_video_profile(False, log_file)
+    log_encode_profile(profile, log_file)
+    cmd.extend(build_video_encode_args(profile))
+    cmd.extend(["-c:a", "aac", "-b:a", "192k", "-y", output_file])
 
     try:
         if log_file:
@@ -494,16 +604,11 @@ def cut_video_with_concat_demuxer(
             meta = process_metadata(txt_file)
             cmd.extend(build_metadata_flags(meta))
         
-        # Encoding settings
-        cmd.extend([
-            "-c:v", "libx264",
-            "-crf", "21",
-            "-preset", "faster",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-y",
-            output_file
-        ])
+        # Encoding settings (GPU/CPU je nach COMSKIP_VENC)
+        profile = resolve_video_profile(False, log_file)
+        log_encode_profile(profile, log_file)
+        cmd.extend(build_video_encode_args(profile))
+        cmd.extend(["-c:a", "aac", "-b:a", "192k", "-y", output_file])
         
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
@@ -597,11 +702,9 @@ def cut_video_with_filter_complex(
         meta = process_metadata(txt_file)
         cmd.extend(build_metadata_flags(meta))
 
-    cmd.extend([
-        "-c:v", "libx264",
-        "-crf", "21",
-        "-preset", "faster",
-    ])
+    profile = resolve_video_profile(True, log_file)
+    log_encode_profile(profile, log_file)
+    cmd.extend(build_video_encode_args(profile))
     
     if has_audio:
         cmd.extend(["-c:a", "aac", "-b:a", "192k"])
@@ -726,6 +829,10 @@ def cut_video(
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "--probe-venc":
+        print_venc_probe()
+        sys.exit(0)
+
     if len(sys.argv) < 4:
         print(
             "Usage: cut_with_edl.py <input_video> <edl_file|none> "

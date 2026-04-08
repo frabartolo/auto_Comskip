@@ -37,7 +37,7 @@ TEMP_BASE="/tmp/comskip_work"
 WORK_DIR="$TEMP_BASE/$$"
 TEMP_DIR="$WORK_DIR/stage"
 FAILED_UPLOAD_DIR="${FAILED_UPLOAD_DIR:-$HOME/comskip_failed_uploads}"
-PYTHON_SCRIPT="./cut_with_edl.py"
+PYTHON_SCRIPT="${PYTHON_SCRIPT:-./cut_with_edl.py}"
 COMSKIP_INI="./comskip.ini"
 
 # Log/Blacklist/Locks: Nutze Mounts wenn vorhanden (alle Worker teilen sich die Dateien)
