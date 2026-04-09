@@ -224,6 +224,22 @@ try_claim_file() {
     return 1
 }
 
+set_lock_file_info() {
+    local file_key="$1"
+    local current_file="$2"
+    local lock_dir base
+    if [ "$USE_MOUNTS" -eq 1 ]; then
+        base="$LOCK_BASE"
+        lock_dir="$base/${file_key}.lck"
+        [ -d "$lock_dir" ] || return 0
+        echo "$WORKER_ID:$(date +%s):$current_file" > "$lock_dir/info" 2>/dev/null || true
+    else
+        base="$LOCK_BASE_REMOTE"
+        lock_dir="$base/${file_key}.lck"
+        ssh_cmd "$SOURCE_SSH_HOST" "echo '$WORKER_ID:$(date +%s):$current_file' > $lock_dir/info" 2>/dev/null || true
+    fi
+}
+
 release_file() {
     local file_key="$1" lock_dir
     if [ "$USE_MOUNTS" -eq 1 ]; then
@@ -369,6 +385,9 @@ while IFS= read -r REMOTE_FILE; do
         ((SKIPPED++)) || true
         continue
     fi
+
+    # Schreibe aktuelle Datei in Lock-Info (für monitor_workers.sh)
+    set_lock_file_info "$LOCK_KEY" "$REL_PATH"
 
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME"

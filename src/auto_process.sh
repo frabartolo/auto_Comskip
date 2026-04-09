@@ -121,9 +121,24 @@ refresh_lock() {
     
     if [ -d "$lock_dir" ] && [ -f "$lock_dir/info" ]; then
         if grep -q "^${WORKER_ID}:" "$lock_dir/info" 2>/dev/null; then
-            printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info" 2>/dev/null || true
+            local old extra
+            old=$(cat "$lock_dir/info" 2>/dev/null || echo "")
+            extra=$(echo "$old" | cut -d: -f3-)
+            if [ -n "$extra" ]; then
+                printf '%s:%s:%s\n' "$WORKER_ID" "$(date +%s)" "$extra" > "$lock_dir/info" 2>/dev/null || true
+            else
+                printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info" 2>/dev/null || true
+            fi
         fi
     fi
+}
+
+set_lock_file_info() {
+    local file_key="$1"
+    local current_file="$2"
+    local lock_dir="$LOCK_DIR/${file_key}.lck"
+    [ -d "$lock_dir" ] || return 0
+    printf '%s:%s:%s\n' "$WORKER_ID" "$(date +%s)" "$current_file" > "$lock_dir/info" 2>/dev/null || true
 }
 
 release_file() {
@@ -312,6 +327,9 @@ while IFS= read -r FILE; do
         ((SKIPPED++)) || true
         continue
     fi
+
+    # Schreibe aktuelle Datei in Lock-Info (für monitor_workers.sh)
+    set_lock_file_info "$LOCK_KEY" "${FILE#$SOURCE_MOUNT_DIR/}"
 
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME.$EXTENSION"

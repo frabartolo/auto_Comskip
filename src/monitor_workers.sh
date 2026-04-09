@@ -154,11 +154,10 @@ list_active_workers() {
             NOW=$(date +%s)
             AGE_MINUTES=$(( (NOW - LOCK_TIME) / 60 ))
             HOSTNAME=$(echo "$WORKER_NAME" | cut -d- -f1)
-            CURRENT_FILE=$(grep "$WORKER_NAME" "$MAIN_LOG" 2>/dev/null | grep "Verarbeite:" | tail -1 | sed -E 's/.*Verarbeite: //' || echo "unbekannt")
-            echo -e "  ${CYAN}${WORKER_NAME}${NC} (${HOSTNAME})"
-            echo -e "    Datei:      ${CURRENT_FILE}"
-            echo -e "    Seit:       ${AGE_MINUTES} Minuten"
-            [ "$AGE_MINUTES" -gt 120 ] && echo -e "    ${RED}⚠ Lock sehr alt!${NC}"
+            CURRENT_FILE=$(echo "$line" | cut -d: -f3-)
+            [ -z "$CURRENT_FILE" ] && CURRENT_FILE="unbekannt"
+            printf "  ${CYAN}%s${NC} (%s)   Seit: %4s Minuten  Datei: %s" "$WORKER_NAME" "$HOSTNAME" "$AGE_MINUTES" "$CURRENT_FILE"
+            [ "$AGE_MINUTES" -gt 120 ] && printf "   ${RED}⚠ Lock sehr alt!${NC}"
             echo ""
         done
         return
@@ -206,16 +205,14 @@ list_active_workers() {
             # Extrahiere Hostname
             HOSTNAME=$(echo "$WORKER_NAME" | cut -d- -f1)
             
-            # Finde letzte "Verarbeite:"-Zeile dieses Workers im Log
-            CURRENT_FILE=$(grep "$WORKER_NAME" "$MAIN_LOG" 2>/dev/null | grep "Verarbeite:" | tail -1 | sed -E 's/.*Verarbeite: //' || echo "unbekannt")
+            CURRENT_FILE=$(echo "$LOCK_INFO" | cut -d: -f3-)
+            [ -z "$CURRENT_FILE" ] && CURRENT_FILE="unbekannt"
             
-            echo -e "  ${CYAN}${WORKER_NAME}${NC} (${HOSTNAME})"
-            echo -e "    Datei:      ${CURRENT_FILE}"
-            echo -e "    Seit:       ${AGE_MINUTES} Minuten"
+            printf "  ${CYAN}%s${NC} (%s)   Seit: %4s Minuten  Datei: %s" "$WORKER_NAME" "$HOSTNAME" "$AGE_MINUTES" "$CURRENT_FILE"
             
             # Warnung bei sehr langen Locks
             if [ "$AGE_MINUTES" -gt 120 ]; then
-                echo -e "    ${RED}⚠ Lock sehr alt! Möglicherweise hängend.${NC}"
+                printf "   ${RED}⚠ Lock sehr alt! Möglicherweise hängend.${NC}"
             fi
             echo ""
         fi
