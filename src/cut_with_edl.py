@@ -128,6 +128,51 @@ def log_encode_profile(profile: str, log_file: Optional[str]) -> None:
         f.write(f"[ENCODE] Video-Profil: {profile}\n")
 
 
+def run_ffmpeg_with_profile_fallback(
+    cmd_prefix: List[str],
+    cmd_suffix: List[str],
+    preferred_profile: str,
+    log_file: Optional[str],
+) -> int:
+    """Run FFmpeg with preferred profile; on failure retry with CPU once.
+
+    Returns FFmpeg exit code.
+    """
+    profiles = [preferred_profile]
+    if preferred_profile != "cpu":
+        profiles.append("cpu")
+
+    last_rc = 1
+    for p in profiles:
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(f"[ENCODE] Versuch: {p}\n")
+        cmd = list(cmd_prefix)
+        cmd.extend(build_video_encode_args(p))
+        cmd.extend(cmd_suffix)
+        try:
+            if log_file:
+                with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                    f.write("[ENCODE] FFmpeg cmd: " + " ".join(cmd) + "\n")
+                    last_rc = subprocess.run(cmd, stdout=f, stderr=f, check=False).returncode
+            else:
+                last_rc = subprocess.run(cmd, check=False).returncode
+        except FileNotFoundError:
+            return 7
+
+        if last_rc == 0:
+            return 0
+
+        if p != "cpu" and log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(
+                    f"[ENCODE] Hardware-Encode fehlgeschlagen (rc={last_rc}), "
+                    "Fallback auf CPU...\n"
+                )
+
+    return last_rc
+
+
 def print_venc_probe() -> None:
     """Diagnose für Kommandozeile (--probe-venc)."""
     auto = _detect_auto_profile()
@@ -440,29 +485,6 @@ def convert_without_cuts(
     # First attempt with error tolerance
     working_file = input_file
     repaired_temp_file = None
-    
-    cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
-    cmd.extend(["-err_detect", "ignore_err"])  # Try to ignore errors first
-    cmd.extend(["-i", working_file])
-
-    has_srt = False
-    if srt_file and os.path.exists(srt_file):
-        cmd.extend(["-i", srt_file])
-        has_srt = True
-
-    cmd.extend(["-map", "0:v", "-map", "0:a"])
-
-    if has_srt:
-        cmd.extend(["-map", "1:0", "-c:s", "srt", "-metadata:s:s:0", "language=ger"])
-
-    if txt_file and os.path.exists(txt_file):
-        meta = process_metadata(txt_file)
-        cmd.extend(build_metadata_flags(meta))
-
-    profile = resolve_video_profile(False, log_file)
-    log_encode_profile(profile, log_file)
-    cmd.extend(build_video_encode_args(profile))
-    cmd.extend(["-c:a", "aac", "-b:a", "192k", "-y", output_file])
 
     try:
         if log_file:
@@ -471,12 +493,34 @@ def convert_without_cuts(
                     f"\n=== FFmpeg Conversion (No Commercials): "
                     f"{os.path.basename(input_file)} ===\n"
                 )
-                rc = subprocess.run(
-                    cmd, stdout=f_log, stderr=f_log, check=False
-                ).returncode
+        profile = resolve_video_profile(False, log_file)
+        log_encode_profile(profile, log_file)
+
+        def _build_prefix(current_input: str) -> List[str]:
+            cmd_prefix = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
+            cmd_prefix.extend(["-err_detect", "ignore_err"])
+            cmd_prefix.extend(["-i", current_input])
+            has_srt_local = False
+            if srt_file and os.path.exists(srt_file):
+                cmd_prefix.extend(["-i", srt_file])
+                has_srt_local = True
+            cmd_prefix.extend(["-map", "0:v", "-map", "0:a"])
+            if has_srt_local:
+                cmd_prefix.extend(
+                    ["-map", "1:0", "-c:s", "srt", "-metadata:s:s:0", "language=ger"]
+                )
+            if txt_file and os.path.exists(txt_file):
+                meta = process_metadata(txt_file)
+                cmd_prefix.extend(build_metadata_flags(meta))
+            return cmd_prefix
+
+        cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+        rc = run_ffmpeg_with_profile_fallback(
+            _build_prefix(working_file), cmd_suffix, profile, log_file
+        )
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
                 f_log.write(f"\n=== FFmpeg Exit Code: {rc} ===\n")
-        else:
-            rc = subprocess.run(cmd, check=False).returncode
 
         # If failed, attempt repair
         if rc != 0:
@@ -489,17 +533,18 @@ def convert_without_cuts(
             if repaired_temp_file:
                 # Retry with repaired file
                 working_file = repaired_temp_file
-                cmd[cmd.index(input_file)] = repaired_temp_file
-                
                 if log_file:
                     with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
                         f_log.write("\n=== Retry with Repaired File ===\n")
-                        rc = subprocess.run(
-                            cmd, stdout=f_log, stderr=f_log, check=False
-                        ).returncode
-                        f_log.write(f"\n=== FFmpeg Exit Code (after repair): {rc} ===\n\n")
-                else:
-                    rc = subprocess.run(cmd, check=False).returncode
+
+                rc = run_ffmpeg_with_profile_fallback(
+                    _build_prefix(working_file), cmd_suffix, profile, log_file
+                )
+                if log_file:
+                    with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
+                        f_log.write(
+                            f"\n=== FFmpeg Exit Code (after repair): {rc} ===\n\n"
+                        )
             
             # If still failed, add to blacklist
             if rc != 0:
@@ -588,35 +633,34 @@ def cut_video_with_concat_demuxer(
                 f.write(f"file '{os.path.abspath(seg_file)}'\n")
         
         # Step 3: Concatenate and re-encode in one pass
-        cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
-        cmd.extend(["-f", "concat", "-safe", "0", "-i", concat_list])
+        cmd_prefix = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
+        cmd_prefix.extend(["-f", "concat", "-safe", "0", "-i", concat_list])
         
         # Add subtitles if available
         if srt_file and os.path.exists(srt_file):
-            cmd.extend(["-i", srt_file])
-            cmd.extend(["-map", "0:v", "-map", "0:a", "-map", "1:0"])
-            cmd.extend(["-c:s", "srt", "-metadata:s:s:0", "language=ger"])
+            cmd_prefix.extend(["-i", srt_file])
+            cmd_prefix.extend(["-map", "0:v", "-map", "0:a", "-map", "1:0"])
+            cmd_prefix.extend(["-c:s", "srt", "-metadata:s:s:0", "language=ger"])
         else:
-            cmd.extend(["-map", "0"])
+            cmd_prefix.extend(["-map", "0"])
         
         # Add metadata if available
         if txt_file and os.path.exists(txt_file):
             meta = process_metadata(txt_file)
-            cmd.extend(build_metadata_flags(meta))
+            cmd_prefix.extend(build_metadata_flags(meta))
         
-        # Encoding settings (GPU/CPU je nach COMSKIP_VENC)
+        # Encoding settings (GPU/CPU je nach COMSKIP_VENC, mit CPU-Fallback)
         profile = resolve_video_profile(False, log_file)
         log_encode_profile(profile, log_file)
-        cmd.extend(build_video_encode_args(profile))
-        cmd.extend(["-c:a", "aac", "-b:a", "192k", "-y", output_file])
+        cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
         
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
                 f.write(f"\nConcatenating {len(segment_files)} segments...\n")
-                rc = subprocess.run(cmd, stdout=f, stderr=f, check=False).returncode
+        rc = run_ffmpeg_with_profile_fallback(cmd_prefix, cmd_suffix, profile, log_file)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
                 f.write(f"\n=== FFmpeg Exit Code: {rc} ===\n\n")
-        else:
-            rc = subprocess.run(cmd, check=False).returncode
         
         if rc != 0:
             print(f"FFmpeg concat failed with exit code {rc}", file=sys.stderr)
@@ -704,12 +748,11 @@ def cut_video_with_filter_complex(
 
     profile = resolve_video_profile(True, log_file)
     log_encode_profile(profile, log_file)
-    cmd.extend(build_video_encode_args(profile))
     
     if has_audio:
-        cmd.extend(["-c:a", "aac", "-b:a", "192k"])
-    
-    cmd.extend(["-y", output_file])
+        cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+    else:
+        cmd_suffix = ["-y", output_file]
 
     try:
         if log_file:
@@ -720,12 +763,10 @@ def cut_video_with_filter_complex(
                 )
                 f_log.write(f"Keep segments: {len(keep_segments)}\n")
                 f_log.write(f"Audio stream: {'present' if has_audio else 'absent'}\n\n")
-                rc = subprocess.run(
-                    cmd, stdout=f_log, stderr=f_log, check=False
-                ).returncode
+        rc = run_ffmpeg_with_profile_fallback(cmd, cmd_suffix, profile, log_file)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
                 f_log.write(f"\n=== FFmpeg Exit Code: {rc} ===\n\n")
-        else:
-            rc = subprocess.run(cmd, check=False).returncode
             
         if rc != 0:
             print(f"FFmpeg failed with exit code {rc}", file=sys.stderr)
