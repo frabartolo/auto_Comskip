@@ -140,7 +140,8 @@ calculate_progress() {
 # --- AKTIVE WORKER ---
 list_active_workers() {
     if [ -n "${LOCK_INFO_REMOTE:-}" ] && [ -f "$LOCK_INFO_REMOTE" ] 2>/dev/null; then
-        ACTIVE_LOCKS=$(grep -c ":" "$LOCK_INFO_REMOTE" 2>/dev/null || echo 0)
+        ACTIVE_LOCKS=$(grep -c ":" "$LOCK_INFO_REMOTE" 2>/dev/null)
+        ACTIVE_LOCKS=${ACTIVE_LOCKS:-0}
         echo -e "${BLUE}Aktive Worker (rsync-Modus):${NC}"
         echo ""
         if [ "$ACTIVE_LOCKS" -eq 0 ]; then
@@ -246,7 +247,8 @@ show_recent_errors() {
     done
     
     # Prüfe ob Fehler gefunden wurden
-    ERROR_COUNT=$(grep -cE "(✗ Fehler \(Exit:|Segfault|✗ Datei ist auf Blacklist)" "$MAIN_LOG" 2>/dev/null || echo "0")
+    ERROR_COUNT=$(grep -cE "(✗ Fehler \(Exit:|Segfault|✗ Datei ist auf Blacklist)" "$MAIN_LOG" 2>/dev/null)
+    ERROR_COUNT=${ERROR_COUNT:-0}
     if [ "$ERROR_COUNT" -eq 0 ]; then
         echo -e "${GREEN}Keine Fehler im Log${NC}"
     fi
@@ -292,7 +294,8 @@ show_worker_stats() {
     ' | tail -20
     
     # Fallback falls keine Statistiken gefunden
-    STAT_COUNT=$(grep -cE "STATISTIK \(|STATISTIK - " "$MAIN_LOG" 2>/dev/null || echo "0")
+    STAT_COUNT=$(grep -cE "STATISTIK \(|STATISTIK - " "$MAIN_LOG" 2>/dev/null)
+    STAT_COUNT=${STAT_COUNT:-0}
     if [ "$STAT_COUNT" -eq 0 ]; then
         echo -e "  ${YELLOW}Noch keine Statistiken verfügbar${NC}"
     fi

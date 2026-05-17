@@ -1,0 +1,70 @@
+# Confluence-Export (Space AORUECK) – lokaler Spiegel
+
+Export aus Chat/Transkript. Verweise auf andere **exportierte** Seiten wurden auf `./<page_id>.md` umgebogen.
+
+## Alle Seiten
+- [PERSON_1 dem Concept-Board aus dem [PERSON_2](https://ruv.conceptboard.com/board/d07r-i3xu-ae89-8cm0-qxy4) sind die wichtigsten Elemente der VAIT gezeigt.](./492342832.md) — `492342832`
+- [PERSON_14 Fremdsoftware](./737347828.md) — `737347828`
+- [Bewertung von KI-PERSON_54 der SiSt [PERSON_55 Intelligenz (KI) (Grundsätze)](https://confluence.ruv.de/x/xNoBHg) müssen KI-Systeme nach den Kriterien](./572960595.md) — `572960595`
+- [Datenrücksicherungskonzept ART PERSON_57](./619625701.md) — `619625701`
+- [DORA Ambitionsniveaus](./596536943.md) — `596536943`
+- [PERSON_252 im ART PERSON_57](./599635800.md) — `599635800`
+- [Sichtung der ANs](./649918834.md) — `649918834`
+- [Statusübersicht](./649918987.md) — `649918987`
+- [Mosaik: ANs für PI 24.3](./605033752.md) — `605033752`
+- [AN-012 - 08 IT-Betrieb - Patchmanagement](./602418271.md) — `602418271`
+- [AN-051 - 07 IT-Projekte und Anwendungsentwicklung (ODV) - Traceability](./602415532.md) — `602415532`
+- [AN-056 - 07 IT-Projekte und Anwendungsentwicklung (ODV) - Sicherheitstests](./602417983.md) — `602417983`
+- [AN-080 - IAM - PERSON_323](./602417739.md) — `602417739`
+- [AN-088 - 07 IT-Projekte und Anwendungsentwicklung (ODV) - Stabilisierungsphase](./602435710.md) — `602435710`
+- [AN-090 - 07 IT-Projekte und Anwendungsentwicklung (ODV) - Testing (ODV)](./602418023.md) — `602418023`
+- [Mosaik: ANs für PI 24.4](./605033774.md) — `605033774`
+- [AN-047 - IT-Notfallmanagement - Konzepte/Pläne für Notfall- und Wiederanlaufszenarien](./612145341.md) — `612145341`
+- [AN-054 - 07 IT-Projekte und Anwendungsentwicklung (ODV) - Code-Review](./602417067.md) — `602417067`
+- [AN-091 - 08 IT-Betrieb - IKT-Änderungsmanagement](./602435768.md) — `602435768`
+- [AN-092 - 08 IT-Betrieb - Incident-/Problemmanagement](./602418104.md) — `602418104`
+- [AN-114 - 08 IT-Betrieb - Datensicherung](./602434493.md) — `602434493`
+- [AN-118 - 08 IT-Betrieb - PERSON_217](./612142027.md) — `612142027`
+- [AN-080 - IAM - PERSON_323 (PI 24.4)](./632267083.md) — `632267083`
+- [Mosaik: ANs für PI 24.5](./625960053.md) — `625960053`
+- [MOSAIK: AN-078 - IAM - Berechtigungskonzepte](./653658781.md) — `653658781`
+- [Mosaik: ANs für PI 25.1](./685455030.md) — `685455030`
+- [MOSAIK: AN-023 - Netzwerkzonierung](./685455037.md) — `685455037`
+- [PERSON_482 im Ressort RH (FB-Mitwirkung)](./602437547.md) — `602437547`
+- [Sprechstunde DORA / PERSON_528 gibt ab Oktober jeden Dienstag von 14:05 - 15:00 Uhr eine Sprechstunde, in der jegliche Mosaik-Themen und Fragen besprochen werden können. PERSON_529 wird angeboten von und/oder .](./642845025.md) — `642845025`
+- [IN ERSTELLUNG: IT-Funktionstrennung im ART Rückversicherung (Business-Managed)](./520232730.md) — `520232730`
+- [in Erstellung: IT-Governance und Prozesse im ART Re](./523529467.md) — `523529467`
+- [Informationssicherheitsstandards (SIST)](./505864833.md) — `505864833`
+- [IRBC](./667468284.md) — `667468284`
+- [IRBC-PERSON_687 (Azure)](./1005348493.md) — `1005348493`
+- [IT-Funktionstrennung im ART Rückversicherung (IT-Managed)](./493434407.md) — `493434407`
+- [Opensource-PERSON_776 Übersicht ist eine persönliche Einschätzung des Autors (mit Hilfe des internen ChatGPT) und ist rechtlich nicht überprüft.](./704137341.md) — `704137341`
+- [Einschätzung von ChatGPT bezüglich der Auswirkungen von Open-Source-Lizenzen auf rein interne PERSON_929 Auswirkungen von Open-Source-Lizenzen auf Software, die ausschließlich unternehmensintern entwickelt und genutzt wird, hängen stark von der spezifischen Lizenz ab, unter der die verwendeten Open-Source-Komponenten stehen. Grundsätzlich gilt:](./752222956.md) — `752222956`
+- [PERSON_830 in der Softwareentwicklung: PERSON_937 und PERSON_938](./751013645.md) — `751013645`
+- [Regulatorik im Testdatenmanagement (Verfremdung)](./492342834.md) — `492342834`
+- [PERSON_1244 zum Thema "Anonymisierung"](./614556970.md) — `614556970`
+- [Vereinbarungen zur Regulatorik](./697944931.md) — `697944931`
+- [Changes für R-Test / Staging nicht mehr nötig](./697944946.md) — `697944946`
+- [PERSON_1263 mit PERSON_1264 bei eingekaufter Software müssen bestimmte R+V Prozesse und Ergebnistypen eingehalten und umgesetzt werden, teilweise liegt die Verantwortlichkeit dafür beim Anbieter. Die folgende Übersicht ist im Rahmen von MOSAIK entstanden und bietet  eine Orientierungshilfe, welche Aufgaben und insb. Ergebnistypen in den unterschiedlichen Kategorien bei der R+V oder beim Anbieter der Software liegen:](./678382904.md) — `678382904`
+- [(Security) Prüfungen von Fremdsoftware](./908584901.md) — `908584901`
+- [Sicherheit bei Servicecalls zwischen Anwendungen](./739194126.md) — `739194126`
+- [<Team-Template> PERSON_1281](./697938983.md) — `697938983`
+- [Wie können wir PERSON_176 Tests regulatorik-konform bei Verwendung der CAT dokumentieren?](./739194038.md) — `739194038`
+- [2025-03-17 Klärungen aus SiST Konsultationen](./710066460.md) — `710066460`
+- [Verfahrensdokumentation](./659753268.md) — `659753268`
+- [Was kommt auf uns zu?](./754942229.md) — `754942229`
+- [Anforderungen aus NIS-2, ISMS, CRA, VAIT und DORA – zussammengefasst](./754942757.md) — `754942757`
+- [Widersprüche zwischen NIS-2, ISMS, CRA, VAIT und DORA](./754942808.md) — `754942808`
+- [CSRD (PERSON_9 PERSON_10)](./851680907.md) — `851680907`
+- [PERSON_1284 Act (CRA)](./754942664.md) — `754942664`
+- [FIDA](./762577172.md) — `762577172`
+- [GoBD für Softwareentwicklung](./756325736.md) — `756325736`
+- [Artefakte aus TFS für eine Archivierung nach GoBD](./759137857.md) — `759137857`
+- [ISMS](./754942232.md) — `754942232`
+- [PERSON_1493 der DORA / JAP 2025:](./983997806.md) — `983997806`
+- [NIS-2](./754942271.md) — `754942271`
+- [Zirkel IT-Prüfungskoordinaton (ITPK)](./523505562.md) — `523505562`
+- [Jahresabschlussprüfung 2023](./523505606.md) — `523505606`
+- [JAP25 - Jahresabschlußprüfung 2025](./757730840.md) — `757730840`
+- [2023-08-29 ITPK PERSON_1509:](./523505493.md) — `523505493`
+- [PERSON_1520 PERSON_1521 (GPAI)](./796237086.md) — `796237086`
