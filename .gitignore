@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Nicht zum Comskip-Projekt (versehentlich nicht committen)
+.tmp_ods/
+.tmp_ods2/
+docs/confluence_aorueck_export/
+docs/confluence_aorueck_export.zip
+.mcp-debug-tools/

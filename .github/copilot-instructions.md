@@ -4,6 +4,8 @@ This repository automates commercial detection (Comskip) and performs lossless-i
 
 Key flow (files to read):
 - Discovery & orchestration: `src/auto_process.sh` and `src/auto_cut.sh`
+- Monitoring: `src/monitor_workers.sh` (shows progress, active workers, errors across all machines)
+- Retry failed: `src/retry_failed.sh` (parses process_summary.log for errors, re-runs Comskip/FFmpeg for those files)
 - Detection config: `src/comskip.ini` (Comskip options)
 - Cutting + metadata: `src/cut_with_edl.py` (ffmpeg filter_complex construction)
 
@@ -30,8 +32,17 @@ Run a single-file debug pipeline (dry run) to inspect a single file end-to-end:
    python3 src/cut_with_edl.py /path/to/input.mp4 /tmp/comskip_work/input.edl /tmp/output.mkv /path/to/input.srt /path/to/input.txt /tmp/video.log
 
 3) Check logs:
-   - Global run summary: `/srv/data/Videos/process_summary.log` (used by `auto_process.sh`)
+   - Global run summary: `/var/opt/shares/Videos/process_summary.log` (used by `auto_process.sh`)
    - Per-video logs are created next to `TARGET_DIR` (see `auto_process.sh` variable `VIDEO_LOG`).
+
+**Corrupted file handling:**
+- `auto_process.sh` validates files with `ffprobe` before Comskip processing.
+- If validation fails, attempts automatic repair with `ffmpeg -err_detect ignore_err -c copy`.
+- Comskip segfaults (exit codes 139/134) are caught and logged; processing continues without EDL.
+- `cut_with_edl.py` automatically attempts repair with `ffmpeg -err_detect ignore_err` if a file fails to process.
+- If repair fails, the file is added to `corrupted_files.blacklist` (located in TARGET_MOUNT_DIR).
+- `retry_failed.sh` skips blacklisted files to avoid repeated processing attempts.
+- Exit code 9 indicates a blacklisted file was encountered.
 
 To run the full automated process, `auto_process.sh` expects a credentials file (see variables at top of the script):
 - `CRED_FILE` contains `username=<user>` and `password=<pass>` lines. The script uses `sshpass` + `sshfs` to mount `REMOTE_PATH`.
@@ -56,6 +67,8 @@ To run the full automated process, `auto_process.sh` expects a credentials file 
 ## Files to reference for examples
 - `src/auto_process.sh` — remote mount, discovery, comskip invocation, logging
 - `src/auto_cut.sh` — simple local discovery variant
+- `src/monitor_workers.sh` — multi-worker monitoring dashboard (progress, active workers, errors, stats)
+- `src/retry_failed.sh` — parse MAIN_LOG for failed files (Speicherzugriffsfehler, ✗ Keine Ausgabe, ✗ Python Exit), re-run comskip + cut_with_edl.py; use `--dry-run` to list only
 - `src/cut_with_edl.py` — EDL parsing and ffmpeg invocation (primary transformation logic)
 - `src/comskip.ini` — detection flags (e.g., `output_edl=1`)
 
