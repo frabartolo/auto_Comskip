@@ -51,6 +51,20 @@ Shows:
 - Worker statistics
 - Blacklist status
 
+### Cleanup (abgebrochene Jobs)
+
+```bash
+cd src
+./cleanup_comskip.sh              # Lokale Temp-Dateien + veraltete Locks (Multi-Worker-sicher)
+./cleanup_comskip.sh --dry-run    # Vorschau ohne Löschen
+./cleanup_comskip.sh --own-locks  # Zusätzlich: eigene Locks, wenn die Worker-PID tot ist
+./cleanup_comskip.sh --local-only # Nur /tmp/comskip_work, repaired_*, etc. auf diesem Rechner
+```
+
+Entfernt u. a. verwaiste `/tmp/comskip_work/<pid>/`-Verzeichnisse, alte `comskip_preprocess_*`/`repaired_*`-Dateien und Locks auf dem Quell-Server, die älter sind als `LOCK_TIMEOUT_MINUTES` (Standard 120, wie in den Worker-Skripten). **Fremde, aktive Locks** werden nicht angetastet.
+
+`auto_process.sh`, `auto_process_rsync.sh` und `auto_process_rsync_gpu.sh` führen beim Start automatisch `cleanup_comskip.sh --own-locks` aus (im Log als `[cleanup]`). Abschalten: `COMSKIP_SKIP_CLEANUP=1`.
+
 ### Retry Failed Files
 
 ```bash

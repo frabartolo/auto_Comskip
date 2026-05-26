@@ -35,6 +35,10 @@ FAILED=0
 SKIPPED=0
 RENAMED=0
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=comskip_startup_cleanup.sh
+source "$SCRIPT_DIR/comskip_startup_cleanup.sh"
+
 log_message() {
     local msg="$1"
     echo "$msg"
@@ -275,6 +279,8 @@ if [ ! -f "$PYTHON_SCRIPT" ]; then
     echo "FEHLER: Python-Skript nicht gefunden: $PYTHON_SCRIPT"
     exit 1
 fi
+
+run_comskip_startup_cleanup log_message || true
 
 log_message "=========================================="
 log_message "Start Verarbeitung: $(date)"

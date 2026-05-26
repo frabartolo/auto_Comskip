@@ -64,6 +64,9 @@ SKIPPED=0
 RENAMED=0
 
 WORKER_ID="$(hostname)-$$"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=comskip_startup_cleanup.sh
+source "$SCRIPT_DIR/comskip_startup_cleanup.sh"
 
 # --- HILFSFUNKTIONEN ---
 # WICHTIG: </dev/null bei allen SSH-Befehlen, damit stdin (Dateiliste) nicht verbraucht wird!
@@ -300,6 +303,8 @@ check_ssh() {
 }
 if ! check_ssh "$SOURCE_SSH_HOST"; then exit 1; fi
 if ! check_ssh "$TARGET_SSH_HOST"; then exit 1; fi
+
+run_comskip_startup_cleanup log_message || true
 
 # Dateiliste holen (ohne Global-Lock - kleines Kommando)
 log_message "Hole Dateiliste..."
