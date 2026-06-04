@@ -83,13 +83,7 @@ calculate_progress() {
     local progress_script
     progress_script="$(cd "$(dirname "$0")" && pwd)/comskip_progress.py"
 
-    if [ ! -f "$progress_script" ]; then
-        if [ -d "$SOURCE_MOUNT" ] && [ -d "$TARGET_MOUNT" ]; then
-            echo -e "${RED}comskip_progress.py fehlt in $(dirname "$progress_script")${NC}"
-            echo -e "  ${YELLOW}→ git pull auf main (dateibasierter Fortschritt ist dort noch nicht in älteren Ständen)${NC}"
-            echo ""
-        fi
-    elif [ -d "$SOURCE_MOUNT" ] && [ -d "$TARGET_MOUNT" ]; then
+    if [ -d "$SOURCE_MOUNT" ] && [ -d "$TARGET_MOUNT" ] && [ -f "$progress_script" ]; then
         local stats line key val
         stats=$(python3 "$progress_script" \
             --source "$SOURCE_MOUNT" \
@@ -109,39 +103,33 @@ calculate_progress() {
             local done=${P[DONE]:-0}
             local bl=${P[BLACKLIST]:-0}
             local fail=${P[FAILED]:-0}
-            local handled=${P[HANDLED]:-$(( done + bl + fail ))}
             local open=${P[OPEN]:-0}
-            local pct_handled=${P[PCT_HANDLED]:-${P[PCT_NO_LONGER_PENDING]:-0}}
-            local pct_done=${P[PCT_DONE]:-0}
+            local pct=${P[PCT_DONE]:-0}
             local mkv=${P[MKV_ON_TARGET]:-0}
             local unrenamed=${P[MKV_UNRENAMED]:-0}
 
-            echo -e "${BLUE}Fortschritt (Quelle → Ziel, dateibasiert):${NC}"
-            echo -e "  Zu bearbeiten (Quelle):     ${total}"
-            echo -e "  ${GREEN}Bereits bearbeitet:${NC}         ${handled} (${pct_handled}%)"
-            echo -e "    davon recodiert (.mkv):   ${done} (${pct_done}%)"
-            echo -e "    davon Blacklist:          ${bl}"
-            echo -e "    davon fehlgeschlagen:     ${fail}"
-            echo -e "  ${CYAN}Noch zu verarbeiten:${NC}        ${open}"
-            echo -e "  Ziel .mkv gesamt:           ${mkv} (${unrenamed} mit __ im Namen)"
+            echo -e "${BLUE}Recodierungs-Fortschritt (Quelle → Ziel):${NC}"
+            echo -e "  Quell-Videos:              ${total}"
+            echo -e "  ${GREEN}Recodiert (Ziel .mkv):${NC}       ${done} (${pct}%)"
+            echo -e "  ${RED}Blacklist (nicht recodierbar):${NC} ${bl}"
+            echo -e "  ${RED}Fehlgeschlagen (Log, offen):${NC}  ${fail}"
+            echo -e "  ${CYAN}Noch offen:${NC}                  ${open}"
+            echo -e "  Ziel .mkv gesamt:          ${mkv} (${unrenamed} mit __ im Namen)"
             echo ""
 
             local bar_w=50 filled empty
-            filled=$(( pct_handled * bar_w / 100 ))
+            filled=$(( pct * bar_w / 100 ))
             empty=$(( bar_w - filled ))
-            printf "  Bearbeitet ["
+            printf "  Recodiert ["
             printf "${GREEN}%${filled}s${NC}" | tr ' ' '█'
             printf "%${empty}s" | tr ' ' '░'
-            printf "] ${pct_handled}%%\n"
+            printf "] ${pct}%%\n"
+            echo ""
+            echo -e "  ${YELLOW}(Log-Zähler alt: nicht mehr für % – nur Dateisystem + Blacklist)${NC}"
             echo ""
             return
         fi
         echo -e "${YELLOW}Dateibasierte Auswertung fehlgeschlagen, Fallback Log...${NC}"
-        echo ""
-    elif [ ! -d "$SOURCE_MOUNT" ] || [ ! -d "$TARGET_MOUNT" ]; then
-        echo -e "${YELLOW}Quell- und Ziel-Mount nötig für dateibasierten Fortschritt:${NC}"
-        echo -e "  Quelle: ${SOURCE_MOUNT} $([ -d "$SOURCE_MOUNT" ] && echo OK || echo fehlt)"
-        echo -e "  Ziel:   ${TARGET_MOUNT} $([ -d "$TARGET_MOUNT" ] && echo OK || echo fehlt)"
         echo ""
     fi
 
