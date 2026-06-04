@@ -154,19 +154,22 @@ def main() -> int:
         if f.lower().endswith(".mkv") and "__" in os.path.splitext(f)[0]
     )
 
-    accounted = done + blacklisted + failed + open_count
+    handled = done + blacklisted + failed
+    accounted = handled + open_count
     pct_done = (done * 100 // total) if total else 0
-    pct_accounted = ((done + blacklisted + failed) * 100 // total) if total else 0
+    pct_handled = (handled * 100 // total) if total else 0
 
     print(f"TOTAL={total}")
     print(f"DONE={done}")
     print(f"BLACKLIST={blacklisted}")
     print(f"FAILED={failed}")
+    print(f"HANDLED={handled}")
     print(f"OPEN={open_count}")
     print(f"MKV_ON_TARGET={mkv_total}")
     print(f"MKV_UNRENAMED={mkv_unrenamed}")
     print(f"PCT_DONE={pct_done}")
-    print(f"PCT_NO_LONGER_PENDING={pct_accounted}")
+    print(f"PCT_HANDLED={pct_handled}")
+    print(f"PCT_NO_LONGER_PENDING={pct_handled}")
     print(f"ACCOUNTED={accounted}")
     return 0
 
