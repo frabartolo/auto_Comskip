@@ -78,62 +78,77 @@ print_separator() {
     echo -e "${CYAN}────────────────────────────────────────────────────────────────────${NC}"
 }
 
-# --- GESAMTFORTSCHRITT ---
+# --- GESAMTFORTSCHRITT (dateibasiert: Quelle vs. Ziel + Blacklist + Log-Fehler) ---
 calculate_progress() {
+    local progress_script
+    progress_script="$(cd "$(dirname "$0")" && pwd)/comskip_progress.py"
+
+    if [ -d "$SOURCE_MOUNT" ] && [ -d "$TARGET_MOUNT" ] && [ -f "$progress_script" ]; then
+        local stats line key val
+        stats=$(python3 "$progress_script" \
+            --source "$SOURCE_MOUNT" \
+            --target "$TARGET_MOUNT" \
+            --blacklist "${BLACKLIST_FILE:-}" \
+            --log "${MAIN_LOG:-}" 2>/dev/null) || stats=""
+
+        if [ -n "$stats" ] && ! echo "$stats" | grep -q '^ERROR='; then
+            declare -A P=()
+            while IFS= read -r line; do
+                key="${line%%=*}"
+                val="${line#*=}"
+                P[$key]="$val"
+            done <<< "$stats"
+
+            local total=${P[TOTAL]:-0}
+            local done=${P[DONE]:-0}
+            local bl=${P[BLACKLIST]:-0}
+            local fail=${P[FAILED]:-0}
+            local open=${P[OPEN]:-0}
+            local pct=${P[PCT_DONE]:-0}
+            local mkv=${P[MKV_ON_TARGET]:-0}
+            local unrenamed=${P[MKV_UNRENAMED]:-0}
+
+            echo -e "${BLUE}Recodierungs-Fortschritt (Quelle → Ziel):${NC}"
+            echo -e "  Quell-Videos:              ${total}"
+            echo -e "  ${GREEN}Recodiert (Ziel .mkv):${NC}       ${done} (${pct}%)"
+            echo -e "  ${RED}Blacklist (nicht recodierbar):${NC} ${bl}"
+            echo -e "  ${RED}Fehlgeschlagen (Log, offen):${NC}  ${fail}"
+            echo -e "  ${CYAN}Noch offen:${NC}                  ${open}"
+            echo -e "  Ziel .mkv gesamt:          ${mkv} (${unrenamed} mit __ im Namen)"
+            echo ""
+
+            local bar_w=50 filled empty
+            filled=$(( pct * bar_w / 100 ))
+            empty=$(( bar_w - filled ))
+            printf "  Recodiert ["
+            printf "${GREEN}%${filled}s${NC}" | tr ' ' '█'
+            printf "%${empty}s" | tr ' ' '░'
+            printf "] ${pct}%%\n"
+            echo ""
+            echo -e "  ${YELLOW}(Log-Zähler alt: nicht mehr für % – nur Dateisystem + Blacklist)${NC}"
+            echo ""
+            return
+        fi
+        echo -e "${YELLOW}Dateibasierte Auswertung fehlgeschlagen, Fallback Log...${NC}"
+        echo ""
+    fi
+
     if [ ! -f "$MAIN_LOG" ]; then
-        echo "Log nicht gefunden"
+        echo "Log nicht gefunden (Mounts für Fortschritt nicht nutzbar)"
         return
     fi
-    
-    # Gesamtzahl der Videos (letzte Zeile mit dieser Info)
-    TOTAL_FILES=$(grep "Video-Dateien gefunden:" "$MAIN_LOG" | tail -1 | grep -oE '[0-9]+' | tail -1)
-    
-    if [ -z "$TOTAL_FILES" ] || [ "$TOTAL_FILES" -eq 0 ]; then
-        echo "Keine Daten"
-        return
-    fi
-    
-    # Erfolgreich verarbeitete Videos (Legacy + rsync-Format)
-    PROCESSED=$(grep -E "(✓ Video verarbeitet|✓ Erfolgreich verarbeitet)" "$MAIN_LOG" 2>/dev/null | wc -l)
-    PROCESSED=${PROCESSED:-0}
-    
-    # Fehlgeschlagene Videos (nur echte Fehler, nicht "Überspringe")
-    FAILED_EXIT=$(grep "✗ Fehler (Exit:" "$MAIN_LOG" 2>/dev/null | wc -l)
-    FAILED_EXIT=${FAILED_EXIT:-0}
-    FAILED_BLACKLIST=$(grep "✗ Datei ist auf Blacklist" "$MAIN_LOG" 2>/dev/null | wc -l)
-    FAILED_BLACKLIST=${FAILED_BLACKLIST:-0}
-    FAILED=$(( FAILED_EXIT + FAILED_BLACKLIST ))
-    
-    # Übersprungene Videos (bereits vorhanden, in Bearbeitung, Blacklist)
-    SKIPPED=$(grep -E "(Überspringe \(bereits|Überspringe \(in Bearbeitung|Überspringe \(Blacklist|✗ Überspringe)" "$MAIN_LOG" 2>/dev/null | wc -l)
-    SKIPPED=${SKIPPED:-0}
-    
-    # Fortschritt berechnen
-    PROGRESS_PCT=$(( PROCESSED * 100 / TOTAL_FILES ))
-    REMAINING=$(( TOTAL_FILES - PROCESSED - FAILED - SKIPPED ))
-    
-    # Verhindere negative Zahlen
-    if [ "$REMAINING" -lt 0 ]; then
-        REMAINING=0
-    fi
-    
-    echo -e "${BLUE}Gesamtfortschritt:${NC}"
-    echo -e "  Gesamt:         ${TOTAL_FILES} Videos"
-    echo -e "  Verarbeitet:    ${GREEN}${PROCESSED}${NC} (${PROGRESS_PCT}%)"
-    echo -e "  Übersprungen:   ${YELLOW}${SKIPPED}${NC}"
-    echo -e "  Fehlgeschlagen: ${RED}${FAILED}${NC}"
-    echo -e "  Verbleibend:    ${CYAN}${REMAINING}${NC}"
-    echo ""
-    
-    # Fortschrittsbalken
-    BAR_WIDTH=50
-    FILLED=$(( PROGRESS_PCT * BAR_WIDTH / 100 ))
-    EMPTY=$(( BAR_WIDTH - FILLED ))
-    
-    printf "  ["
-    printf "${GREEN}%${FILLED}s${NC}" | tr ' ' '█'
-    printf "%${EMPTY}s" | tr ' ' '░'
-    printf "] ${PROGRESS_PCT}%%\n"
+
+    echo -e "${YELLOW}Hinweis: Nur Log-Fallback – Mounts nicht verfügbar.${NC}"
+    local total_files processed progress_pct
+    total_files=$(grep -E "Video-Dateien gefunden:|Gefunden:.*Video-Dateien" "$MAIN_LOG" | tail -1 | grep -oE '[0-9]+' | tail -1)
+    [ -z "$total_files" ] && total_files=0
+    processed=$(grep -cE "(✓ Video verarbeitet|✓ Erfolgreich verarbeitet)" "$MAIN_LOG" 2>/dev/null)
+    processed=${processed:-0}
+    progress_pct=0
+    [ "$total_files" -gt 0 ] && progress_pct=$(( processed * 100 / total_files ))
+
+    echo -e "  Gesamt (Log):     ${total_files}"
+    echo -e "  Erfolgs-Zeilen:   ${processed} (~${progress_pct}%, enthält Duplikate)"
     echo ""
 }
 
