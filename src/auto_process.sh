@@ -14,7 +14,7 @@ SOURCE_REMOTE_PATH="/var/opt/shares/Videos"
 # === ZIEL-SERVER (Manuell gemountet) ===
 TARGET_MOUNT_DIR="$HOME/mount/khanhiwara-videos"
 TARGET_SSH_HOST="khanhiwara"
-TARGET_REMOTE_PATH="/var/opt/shares/Videos"
+TARGET_REMOTE_PATH="/srv/data/Videos"
 
 # Arbeitspfade
 TARGET_BASE="$TARGET_MOUNT_DIR"
@@ -29,16 +29,6 @@ LOCK_DIR="$SOURCE_MOUNT_DIR/.comskip_locks"
 WORKER_ID="$(hostname)-$$"
 LOCK_TIMEOUT_MINUTES=120
 LOCK_REFRESH_INTERVAL=300
-
-# --- MULTI-MASCHINEN KOORDINATION ---
-# Lock-Verzeichnis auf dem Remote-Share (sichtbar für alle Rechner)
-LOCK_DIR="$MOUNT_DIR/.comskip_locks"
-# Eindeutige Worker-ID: Hostname + PID
-WORKER_ID="$(hostname)-$$"
-# Staler Lock nach X Minuten übernehmen (z. B. bei Absturz)
-LOCK_TIMEOUT_MINUTES=60
-# Heartbeat-Intervall in Sekunden (muss deutlich kürzer als LOCK_TIMEOUT_MINUTES*60 sein)
-HEARTBEAT_INTERVAL_SECONDS=60
 
 PROCESSED=0
 FAILED=0
@@ -55,25 +45,6 @@ log_message() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$MAIN_LOG"
 }
 
-<<<<<<< HEAD
-# --- MULTI-MASCHINEN LOCK-FUNKTIONEN ---
-
-# Erzeugt einen kollisionssicheren Schlüssel aus dem Dateipfad.
-# Versucht sha256sum → md5sum → cksum als Fallback.
-make_lock_key() {
-    local path="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        printf '%s' "$path" | sha256sum | cut -d' ' -f1
-    elif command -v md5sum >/dev/null 2>&1; then
-        printf '%s' "$path" | md5sum | cut -d' ' -f1
-    else
-        printf '%s' "$path" | cksum | awk '{print $1 "_" $2}'
-    fi
-}
-
-# Versucht, eine Datei exklusiv zu beanspruchen.
-# Gibt 0 zurück wenn erfolgreich, 1 wenn bereits von anderem Rechner belegt.
-=======
 # --- BLACKLIST-FUNKTIONEN ---
 is_blacklisted() {
     local filename="$1"
@@ -100,43 +71,10 @@ generate_lock_key() {
     fi
 }
 
->>>>>>> origin/main
 try_claim_file() {
     local file_key="$1"
     local lock_dir="$LOCK_DIR/${file_key}.lck"
 
-<<<<<<< HEAD
-    # Lock-Verzeichnis anlegen (Fehler ignorieren, z. B. Read-only FS)
-    mkdir -p "$LOCK_DIR" 2>/dev/null || return 0
-
-    # Atomares Anlegen per mkdir
-    if mkdir "$lock_dir" 2>/dev/null; then
-        printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
-        return 0
-    fi
-
-    # Lock existiert – prüfe ob er abgelaufen ist
-    if [ -f "$lock_dir/info" ]; then
-        local lock_info worker_name lock_time age_minutes
-        lock_info=$(cat "$lock_dir/info" 2>/dev/null || echo "unknown:0")
-        worker_name=$(echo "$lock_info" | cut -d: -f1)
-        lock_time=$(echo "$lock_info" | cut -d: -f2)
-        age_minutes=$(( ( $(date +%s) - lock_time ) / 60 ))
-        if [ "$age_minutes" -ge "$LOCK_TIMEOUT_MINUTES" ]; then
-            log_message "  -> Staler Lock von $worker_name (${age_minutes}min), übernehme..."
-            rm -rf "$lock_dir"
-            if mkdir "$lock_dir" 2>/dev/null; then
-                printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
-                # Race-Condition-Schutz: kurz warten, dann Eigentümerschaft bestätigen
-                sleep 1
-                if grep -q "^${WORKER_ID}:" "$lock_dir/info" 2>/dev/null; then
-                    return 0
-                fi
-            fi
-        fi
-        log_message "  -> Bereits in Bearbeitung von: $worker_name (${age_minutes}min)"
-    fi
-=======
     mkdir -p "$LOCK_DIR" 2>/dev/null || {
         log_message "  -> WARNUNG: Kann Lock-Verzeichnis nicht erstellen"
         return 0
@@ -177,53 +115,10 @@ try_claim_file() {
             continue
         fi
     done
->>>>>>> origin/main
 
     return 1
 }
 
-<<<<<<< HEAD
-# Gibt den Lock für eine Datei frei.
-release_file() {
-    local file_key="$1"
-    rm -rf "$LOCK_DIR/${file_key}.lck" 2>/dev/null || true
-}
-
-# Startet einen Hintergrundprozess, der den Lock-Zeitstempel regelmäßig erneuert,
-# damit lange Jobs (>LOCK_TIMEOUT_MINUTES) nicht fälschlich als abgelaufen gelten.
-start_heartbeat() {
-    local file_key="$1"
-    local lock_dir="$LOCK_DIR/${file_key}.lck"
-    (
-        while true; do
-            sleep "$HEARTBEAT_INTERVAL_SECONDS"
-            if grep -q "^${WORKER_ID}:" "$lock_dir/info" 2>/dev/null; then
-                printf '%s:%s\n' "$WORKER_ID" "$(date +%s)" > "$lock_dir/info"
-            else
-                break
-            fi
-        done
-    ) &
-    echo $!
-}
-
-# Stoppt den Heartbeat-Prozess.
-stop_heartbeat() {
-    local pid="$1"
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-}
-
-# Räumt beim Beenden alle Locks auf, die von diesem Prozess angelegt wurden.
-cleanup_locks() {
-    [ -d "$LOCK_DIR" ] || return 0
-    find "$LOCK_DIR" -name "*.lck" -type d 2>/dev/null | while IFS= read -r lock; do
-        if [ -f "$lock/info" ] && grep -q "^${WORKER_ID}:" "$lock/info" 2>/dev/null; then
-            rm -rf "$lock"
-        fi
-    done
-}
-trap cleanup_locks EXIT
-=======
 refresh_lock() {
     local file_key="$1"
     local lock_dir="$LOCK_DIR/${file_key}.lck"
@@ -324,7 +219,6 @@ check_and_mount() {
         return 1
     fi
 }
->>>>>>> origin/main
 
 # --- ZUGANGSDATEN AUSLESEN ---
 if [ ! -f "$CRED_FILE" ]; then
@@ -432,16 +326,6 @@ while IFS= read -r FILE; do
 
     TARGET_FILE="$TARGET_FILE_ORIGINAL"
 
-<<<<<<< HEAD
-    # Multi-Maschinen Lock: Datei exklusiv für diesen Rechner beanspruchen
-    LOCK_KEY=$(make_lock_key "${FILE#$MOUNT_DIR/}")
-    if ! try_claim_file "$LOCK_KEY"; then
-        echo "Überspringe (in Bearbeitung auf anderem Rechner): $FILENAME.$EXTENSION"
-        ((SKIPPED++)) || true
-        continue
-    fi
-    HEARTBEAT_PID=$(start_heartbeat "$LOCK_KEY")
-=======
     # Multi-Maschinen Lock
     LOCK_KEY=$(generate_lock_key "${FILE#$SOURCE_MOUNT_DIR/}")
     if ! try_claim_file "$LOCK_KEY"; then
@@ -450,9 +334,7 @@ while IFS= read -r FILE; do
         continue
     fi
 
-    # Schreibe aktuelle Datei in Lock-Info (für monitor_workers.sh)
     set_lock_file_info "$LOCK_KEY" "${FILE#$SOURCE_MOUNT_DIR/}"
->>>>>>> origin/main
 
     log_message "------------------------------------------"
     log_message "Verarbeite: $FILENAME.$EXTENSION"
@@ -466,10 +348,6 @@ while IFS= read -r FILE; do
     if [ "$FILE_SIZE_MB" -gt "$((AVAILABLE_TOTAL_MB - 500))" ]; then
         log_message "  ⚠ Datei zu groß: ${FILE_SIZE_MB}MB (verfügbar: ${AVAILABLE_TOTAL_MB}MB RAM+Swap)"
         log_message "  ✗ Überspringe"
-<<<<<<< HEAD
-        stop_heartbeat "$HEARTBEAT_PID"
-=======
->>>>>>> origin/main
         release_file "$LOCK_KEY"
         ((FAILED++)) || true
         continue
@@ -618,15 +496,8 @@ while IFS= read -r FILE; do
         [ "$PYTHON_EXIT" -eq 6 ] && log_message "    (FFmpeg-Fehler oder OOM)"
         ((FAILED++)) || true
     fi
-<<<<<<< HEAD
-    
-    stop_heartbeat "$HEARTBEAT_PID"
-    release_file "$LOCK_KEY"
-
-=======
 
     release_file "$LOCK_KEY"
->>>>>>> origin/main
     rm -rf "$TEMP_DIR"/*
 
 done
