@@ -212,3 +212,20 @@ __marimo__/
 docs/confluence_aorueck_export/
 docs/confluence_aorueck_export.zip
 .mcp-debug-tools/
+
+# Khanhiwara-Migration (eigenes Repo: ~/Workspace/khanhiwara-migration)
+src/familie_*.py
+src/fotos_*.py
+src/install_*.py
+src/musik_*.py
+src/hoerbuch_*.py
+src/tags_*.py
+src/mp3_*.py
+src/verify_phase1.py
+src/phase4b_*
+src/*_operationen.csv
+src/*_report.csv
+src/ablage_zuordnung.csv
+src/kopier_operationen.csv
+src/genre_*.csv
+src/code_genre_mapping.csv

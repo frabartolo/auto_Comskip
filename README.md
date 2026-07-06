@@ -134,3 +134,9 @@ Für `auto_process_rsync.sh`: Hosts und Pfade im Skript-Kopf; alternativ per Umg
 - `sshpass` - Für SSH-Authentifizierung (beide Scripts)
 - `rsync` - Für auto_process_rsync.sh (ersetzt sshfs)
 - `sshfs` - Nur für auto_process.sh (Legacy-Modus)
+
+## Verwandtes Projekt
+
+Die Khanhiwara-Datenmigration (Dokumente, Fotos, Musik, Hörbücher) liegt in einem separaten Repository:
+
+`~/Workspace/khanhiwara-migration`
