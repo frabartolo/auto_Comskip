@@ -229,3 +229,6 @@ src/ablage_zuordnung.csv
 src/kopier_operationen.csv
 src/genre_*.csv
 src/code_genre_mapping.csv
+
+# Lokaler ESPHome-Build-Cache (Wallbox: siehe wallbox/)
+esphome_build/
