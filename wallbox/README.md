@@ -15,10 +15,10 @@ wallbox/
 │       └── ds3502_potentiometer/   ← nativer I2C-Treiber DS3502
 └── hardware/
     ├── mounting.md           ← Verdrahtung, Hutschiene, externer BME
-    └── 3d-print/
-        ├── README.md
-        └── bme_sensor_pod.scad
+    └── 3d-print/README.md    ← Verweis auf ~/Workspace/Wallbox/hardware/3d-print/
 ```
+
+3D-Druck (BME-Gehäuse, STL): [`~/Workspace/Wallbox`](~/Workspace/Wallbox) → `hardware/3d-print/BME_Sensor_Pod/`
 
 ## Deployment
 
@@ -44,7 +44,7 @@ scp esphome/wb-mit-wetter.yaml root@wilhelmshome:/config/esphome/
 ## Hardware
 
 - D1 Mini Pro auf **Hutschiene**: [Printables DIN mount (Basti)](https://www.printables.com/model/1530436-d1mini-din-rail-mount)
-- BME280 **extern**: `hardware/3d-print/bme_sensor_pod.scad`
+- BME280 **extern**: `~/Workspace/Wallbox/hardware/3d-print/BME_Sensor_Pod/bme_sensor_pod.stl`
 - Details: [`hardware/mounting.md`](hardware/mounting.md)
 
 ## Home Assistant

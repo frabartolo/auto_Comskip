@@ -191,6 +191,27 @@ def get_blacklist_path(log_file: Optional[str] = None) -> str:
     return "/tmp/corrupted_files.blacklist"
 
 
+def input_has_audio(input_file: str) -> bool:
+    """True wenn die Datei mindestens einen Audiostream hat (ffprobe)."""
+    try:
+        probe_cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            input_file,
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, check=False)
+        return result.stdout.strip() == "audio"
+    except OSError:
+        return True
+
+
 def edl_has_no_commercials(edl_file: str) -> bool:
     """Check if an EDL file contains no commercial segments."""
     try:
@@ -495,8 +516,14 @@ def convert_without_cuts(
                 )
         profile = resolve_video_profile(False, log_file)
         log_encode_profile(profile, log_file)
+        has_audio = input_has_audio(working_file)
+        if log_file:
+            with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
+                f_log.write(
+                    f"Audio stream: {'present' if has_audio else 'absent'}\n"
+                )
 
-        def _build_prefix(current_input: str) -> List[str]:
+        def _build_prefix(current_input: str, with_audio: bool) -> List[str]:
             cmd_prefix = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
             cmd_prefix.extend(["-err_detect", "ignore_err"])
             cmd_prefix.extend(["-i", current_input])
@@ -504,7 +531,10 @@ def convert_without_cuts(
             if srt_file and os.path.exists(srt_file):
                 cmd_prefix.extend(["-i", srt_file])
                 has_srt_local = True
-            cmd_prefix.extend(["-map", "0:v", "-map", "0:a"])
+            # Optional audio: WhatsApp/Handy-Videos oft ohne Ton
+            cmd_prefix.extend(["-map", "0:v"])
+            if with_audio:
+                cmd_prefix.extend(["-map", "0:a"])
             if has_srt_local:
                 cmd_prefix.extend(
                     ["-map", "1:0", "-c:s", "srt", "-metadata:s:s:0", "language=ger"]
@@ -514,9 +544,12 @@ def convert_without_cuts(
                 cmd_prefix.extend(build_metadata_flags(meta))
             return cmd_prefix
 
-        cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+        if has_audio:
+            cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+        else:
+            cmd_suffix = ["-an", "-y", output_file]
         rc = run_ffmpeg_with_profile_fallback(
-            _build_prefix(working_file), cmd_suffix, profile, log_file
+            _build_prefix(working_file, has_audio), cmd_suffix, profile, log_file
         )
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
@@ -537,8 +570,16 @@ def convert_without_cuts(
                     with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
                         f_log.write("\n=== Retry with Repaired File ===\n")
 
+                has_audio = input_has_audio(working_file)
+                if has_audio:
+                    cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+                else:
+                    cmd_suffix = ["-an", "-y", output_file]
                 rc = run_ffmpeg_with_profile_fallback(
-                    _build_prefix(working_file), cmd_suffix, profile, log_file
+                    _build_prefix(working_file, has_audio),
+                    cmd_suffix,
+                    profile,
+                    log_file,
                 )
                 if log_file:
                     with open(log_file, "a", encoding="utf-8", errors="ignore") as f_log:
@@ -633,16 +674,22 @@ def cut_video_with_concat_demuxer(
                 f.write(f"file '{os.path.abspath(seg_file)}'\n")
         
         # Step 3: Concatenate and re-encode in one pass
+        has_audio = input_has_audio(input_file)
         cmd_prefix = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
         cmd_prefix.extend(["-f", "concat", "-safe", "0", "-i", concat_list])
         
         # Add subtitles if available
         if srt_file and os.path.exists(srt_file):
             cmd_prefix.extend(["-i", srt_file])
-            cmd_prefix.extend(["-map", "0:v", "-map", "0:a", "-map", "1:0"])
+            cmd_prefix.extend(["-map", "0:v"])
+            if has_audio:
+                cmd_prefix.extend(["-map", "0:a"])
+            cmd_prefix.extend(["-map", "1:0"])
             cmd_prefix.extend(["-c:s", "srt", "-metadata:s:s:0", "language=ger"])
         else:
-            cmd_prefix.extend(["-map", "0"])
+            cmd_prefix.extend(["-map", "0:v"])
+            if has_audio:
+                cmd_prefix.extend(["-map", "0:a"])
         
         # Add metadata if available
         if txt_file and os.path.exists(txt_file):
@@ -652,7 +699,10 @@ def cut_video_with_concat_demuxer(
         # Encoding settings (GPU/CPU je nach COMSKIP_VENC, mit CPU-Fallback)
         profile = resolve_video_profile(False, log_file)
         log_encode_profile(profile, log_file)
-        cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+        if has_audio:
+            cmd_suffix = ["-c:a", "aac", "-b:a", "192k", "-y", output_file]
+        else:
+            cmd_suffix = ["-an", "-y", output_file]
         
         if log_file:
             with open(log_file, "a", encoding="utf-8", errors="ignore") as f:
@@ -713,15 +763,7 @@ def cut_video_with_filter_complex(
 ) -> int:
     """Cut video using filter_complex (original method, for small files)."""
     
-    # Check if file has audio stream
-    has_audio = True
-    try:
-        probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1", input_file]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, check=False)
-        has_audio = result.stdout.strip() == "audio"
-    except:
-        pass  # Assume has audio if probe fails
-    
+    has_audio = input_has_audio(input_file)
     filter_complex = build_filter_complex(keep_segments, has_audio=has_audio)
     
     cmd = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", input_file]
