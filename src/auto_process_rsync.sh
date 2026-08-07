@@ -24,7 +24,9 @@ CRED_FILE="$HOME/.smbcredentials"
 
 # === QUELL-SERVER ===
 SOURCE_SSH_HOST="${SOURCE_SSH_HOST:-cold-lairs}"
-SOURCE_REMOTE_PATH="/var/opt/shares/Videos"
+SOURCE_REMOTE_PATH="${SOURCE_REMOTE_PATH:-/var/opt/shares/Videos}"
+# Optional: nur Unterordner scannen (REL_PATH bleibt relativ zu SOURCE_REMOTE_PATH)
+SOURCE_SCAN_PATH="${SOURCE_SCAN_PATH:-$SOURCE_REMOTE_PATH}"
 SOURCE_MOUNT_DIR="${SOURCE_MOUNT_DIR:-$HOME/mount/cold-lairs-videos}"
 
 # === ZIEL-SERVER ===
@@ -257,9 +259,9 @@ release_file() {
 # --- DATEILISTE ---
 get_file_list() {
     if [ "$USE_MOUNTS" -eq 1 ]; then
-        find "$SOURCE_MOUNT_DIR" -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null
+        find "${SOURCE_MOUNT_DIR}${SOURCE_SCAN_PATH#$SOURCE_REMOTE_PATH}" -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null
     else
-        ssh_cmd "$SOURCE_SSH_HOST" "find $SOURCE_REMOTE_PATH -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null"
+        ssh_cmd "$SOURCE_SSH_HOST" "find $SOURCE_SCAN_PATH -type f \( -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mkv' -o -iname '*.ts' -o -iname '*.mpeg' -o -iname '*.mpg' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.asf' -o -iname '*.wmv' -o -iname '*.avi' -o -iname '*.divx' \) 2>/dev/null"
     fi
 }
 
@@ -286,6 +288,7 @@ log_message "auto_process_rsync.sh - Start ($(date))"
 log_message "=========================================="
 log_message "Worker: $WORKER_ID"
 log_message "Quell-Server: $SOURCE_SSH_HOST"
+log_message "Scan-Pfad: $SOURCE_SCAN_PATH"
 log_message "Ziel-Server: $TARGET_SSH_HOST"
 [ "$USE_MOUNTS" -eq 1 ] && log_message "Modus: Mounts (Log/Blacklist/Locks auf $TARGET_MOUNT_DIR, $SOURCE_MOUNT_DIR)" || log_message "Modus: SSH-only (Log/Blacklist/Locks per SSH)"
 
