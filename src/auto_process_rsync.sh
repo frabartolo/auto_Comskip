@@ -80,7 +80,7 @@ rsync_from() {
     local host="$1"
     local remote_path="$2"
     local local_path="$3"
-    rsync -avz "${RSYNC_RSH[@]}" \
+    rsync -av "${RSYNC_RSH[@]}" \
         "$SSH_USER@$host:$remote_path" "$local_path" 2>/dev/null || return 1
 }
 
@@ -88,7 +88,7 @@ rsync_to() {
     local local_path="$1"
     local host="$2"
     local remote_path="$3"
-    rsync -avz "${RSYNC_RSH[@]}" \
+    rsync -av "${RSYNC_RSH[@]}" \
         "$local_path" "$SSH_USER@$host:$remote_path" 2>/dev/null || return 1
 }
 
@@ -412,7 +412,7 @@ while IFS= read -r REMOTE_FILE; do
         continue
     fi
     log_message "Schritt 1: Lade Datei (+ Sidecars) vom Quell-Server..."
-    if ! rsync -avz "${RSYNC_RSH[@]}" \
+    if ! rsync -av "${RSYNC_RSH[@]}" \
         "$SSH_USER@$RSYNC_SOURCE_PATH" "$LOCAL_INPUT" 2>/dev/null; then
         log_message "  ✗ rsync von Quell-Server fehlgeschlagen"
         release_file "$LOCK_KEY"
@@ -423,7 +423,7 @@ while IFS= read -r REMOTE_FILE; do
     fi
     REMOTE_BASE="$SOURCE_REMOTE_PATH/${REL_PATH%.*}"
     for ext in srt txt xml; do
-        rsync -avz "${RSYNC_RSH[@]}" \
+        rsync -av "${RSYNC_RSH[@]}" \
             "$SSH_USER@$SOURCE_SSH_HOST:${REMOTE_BASE}.${ext}" "$TEMP_DIR/" 2>/dev/null || true
     done
     release_global_lock
@@ -549,12 +549,12 @@ while IFS= read -r REMOTE_FILE; do
             log_message "Schritt 5: Kopiere auf Ziel-Server (gleiche rsync/SSH-Optionen wie Schritt 1)..."
             ssh_cmd "$TARGET_SSH_HOST" "mkdir -p $TARGET_REL_DIR" 2>/dev/null || true
             RSYNC_EC=0
-            RSYNC_ERR=$(rsync -avz "${RSYNC_RSH[@]}" \
+            RSYNC_ERR=$(rsync -av "${RSYNC_RSH[@]}" \
                 "$LOCAL_OUTPUT" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$TARGET_FILENAME" 2>&1) || RSYNC_EC=$?
             if [ "$RSYNC_EC" -eq 0 ]; then
-                [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -avz "${RSYNC_RSH[@]}" \
+                [ -n "$SRT_ARG" ] && [ "$SRT_ARG" != "none" ] && rsync -av "${RSYNC_RSH[@]}" \
                     "$SRT_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.srt" 2>/dev/null || true
-                [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -avz "${RSYNC_RSH[@]}" \
+                [ -n "$METADATA_ARG" ] && [ "$METADATA_ARG" != "none" ] && rsync -av "${RSYNC_RSH[@]}" \
                     "$METADATA_ARG" "$SSH_USER@$TARGET_SSH_HOST:$TARGET_REL_DIR/$FILE_BASE.${METADATA_ARG##*.}" 2>/dev/null || true
 
                 log_message "  ✓ Erfolgreich verarbeitet"
